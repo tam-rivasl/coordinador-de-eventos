@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { SchedulerState, Person, Availability, TimeRange, SlotResult, STEP } from "@/types/scheduler";
-import { uid, mergeRanges, buildAvailabilitySet, scoreAlt } from "@/lib/scheduler-utils";
+import { uid, mergeRanges, buildBusySet, scoreAlt } from "@/lib/scheduler-utils";
 
 const LS_KEY = "tiempojuntos_v1";
 
@@ -27,7 +27,6 @@ export function useScheduler() {
       people: [
         { id: uid(), name: "Yo" },
         { id: uid(), name: "Amigo 1" },
-        { id: uid(), name: "Amigo 2" },
       ],
       availability: {},
     };
@@ -102,29 +101,38 @@ export function useScheduler() {
     const alts: SlotResult[] = [];
     const people = state.people;
 
-    for (let day = 0; day < 7; day++) {
-      const sets = people.map((p) => ({
-        p,
-        set: buildAvailabilitySet(p.id, day, state.availability),
-      }));
-      const times = new Set<number>();
-      sets.forEach((x) => x.set.forEach((t) => times.add(t)));
+    // Define the range of interest (e.g., 08:00 to 24:00 for hangouts)
+    // Or just check the whole 24 hours.
+    const START_H = 8 * 60;
+    const END_H = 24 * 60;
 
-      for (const t of times) {
-        const can = sets.filter((x) => x.set.has(t)).map((x) => x.p);
-        alts.push({
-          day,
-          start: t,
-          end: t + STEP,
-          count: can.length,
-          can,
-        });
+    for (let day = 0; day < 7; day++) {
+      const busySets = people.map((p) => ({
+        p,
+        set: buildBusySet(p.id, day, state.availability),
+      }));
+
+      for (let t = START_H; t < END_H; t += STEP) {
+        // A person is free if they are NOT in the busy set
+        const freePeople = busySets.filter((x) => !x.set.has(t)).map((x) => x.p);
+        
+        if (freePeople.length > 0) {
+          alts.push({
+            day,
+            start: t,
+            end: t + STEP,
+            count: freePeople.length,
+            can: freePeople,
+          });
+        }
       }
     }
 
     if (alts.length === 0) return { best: null, alternatives: [] };
 
+    // Sort by most people free, then earlier time
     const sorted = alts.sort((a, b) => scoreAlt(b) - scoreAlt(a));
+    
     const uniqueAlts: SlotResult[] = [];
     const seen = new Set<string>();
 
@@ -134,11 +142,11 @@ export function useScheduler() {
         seen.add(key);
         uniqueAlts.push(a);
       }
-      if (uniqueAlts.length >= 12) break;
+      if (uniqueAlts.length >= 15) break;
     }
 
     return {
-      best: uniqueAlts[0],
+      best: uniqueAlts[0] || null,
       alternatives: uniqueAlts.slice(1),
     };
   };

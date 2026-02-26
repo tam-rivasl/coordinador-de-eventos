@@ -32,7 +32,10 @@ export function mergeRanges(ranges: TimeRange[]): TimeRange[] {
   return merged;
 }
 
-export function buildAvailabilitySet(personId: string, day: number, availability: Availability): Set<number> {
+/**
+ * Builds a set of minutes where the person is BUSY.
+ */
+export function buildBusySet(personId: string, day: number, availability: Availability): Set<number> {
   const ranges = availability[personId]?.[day] || [];
   const s = new Set<number>();
   for (const r of ranges) {
@@ -44,6 +47,8 @@ export function buildAvailabilitySet(personId: string, day: number, availability
 }
 
 export function scoreAlt(alt: SlotResult): number {
+  // Prefer results with more people, then earlier days, then earlier times.
+  // We subtract day and start from a large number so smaller (earlier) values are better.
   return alt.count * 1000000 - alt.day * 1000 - alt.start;
 }
 

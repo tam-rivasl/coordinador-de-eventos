@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useScheduler } from "@/hooks/use-scheduler";
-import { DAYS_NAMES, type SchedulerState } from "@/types/scheduler";
+import { DAYS_NAMES, type SchedulerState, STEP } from "@/types/scheduler";
 import { colorFromId, toMin, fromMin } from "@/lib/scheduler-utils";
 import { 
   Card, 
@@ -32,7 +32,8 @@ import {
   Clock, 
   Calendar as CalendarIcon,
   X,
-  Edit2
+  Edit2,
+  AlertTriangle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -111,19 +112,16 @@ export default function Home() {
         <div className="space-y-2">
           <h1 className="text-4xl md:text-5xl font-headline tracking-tight">TiempoJuntos</h1>
           <p className="text-muted-foreground max-w-2xl leading-relaxed">
-            Coordinar con amigos nunca fue tan fácil. Agrega disponibilidad, calcula el mejor horario y ¡listo! 
-            Tus datos se guardan solo en tu navegador.
+            Agrega los horarios en los que <strong className="text-primary">NO PUEDES</strong> (trabajo, gimnasio, etc.).
+            Calcularemos los huecos libres donde todos coinciden para la junta.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline" className="font-code py-1.5 px-3 border-accent/20 bg-accent/5">
-            ⏱️ Bloques: 30m
+            ⏱️ Bloques: {STEP}m
           </Badge>
           <Badge variant="outline" className="font-code py-1.5 px-3 border-accent/20 bg-accent/5">
-            🗓️ 7 Días
-          </Badge>
-          <Badge variant="outline" className="font-code py-1.5 px-3 border-accent/20 bg-accent/5">
-            💾 Local Storage
+            🗓️ Semanal
           </Badge>
         </div>
       </header>
@@ -133,14 +131,11 @@ export default function Home() {
         {/* Left Column: Input Panel */}
         <div className="lg:col-span-7 space-y-8">
           <Card className="border-border/40 shadow-2xl overflow-hidden relative group">
-            <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none group-hover:opacity-10 transition-opacity">
-              <CalendarIcon size={120} />
-            </div>
             <CardHeader className="border-b border-border/40 bg-card/50">
               <div className="flex justify-between items-center">
                 <CardTitle className="text-xl flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-primary" />
-                  Agregar Disponibilidad
+                  <AlertTriangle className="w-5 h-5 text-destructive" />
+                  Registrar Bloqueos
                 </CardTitle>
                 <div className="flex gap-2">
                   <Button 
@@ -166,12 +161,15 @@ export default function Home() {
                   </Button>
                 </div>
               </div>
+              <CardDescription>
+                Ingresa los bloques de tiempo en los que NO estás disponible.
+              </CardDescription>
             </CardHeader>
             <CardContent className="pt-6 space-y-6">
               {/* Add Slot Form */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
                 <div className="space-y-2 lg:col-span-1">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Amigo</label>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">¿Quién?</label>
                   <Select value={selectedPersonId} onValueChange={setSelectedPersonId}>
                     <SelectTrigger className="bg-background/40">
                       <SelectValue placeholder="Seleccionar" />
@@ -215,8 +213,8 @@ export default function Home() {
                   />
                 </div>
                 <div className="lg:col-span-1">
-                  <Button onClick={handleAddSlot} className="w-full bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20">
-                    Añadir
+                  <Button onClick={handleAddSlot} variant="destructive" className="w-full shadow-lg shadow-destructive/20">
+                    Bloquear
                   </Button>
                 </div>
               </div>
@@ -230,14 +228,14 @@ export default function Home() {
                       <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{name}</span>
                       <div className="flex flex-col gap-1.5">
                         {slots.length === 0 ? (
-                          <span className="text-[10px] text-muted-foreground/40 italic">Libre</span>
+                          <span className="text-[10px] text-muted-foreground/40 italic">Todo libre</span>
                         ) : (
                           slots.sort((a,b) => a.fromMin - b.fromMin).map((s, idx) => (
-                            <div key={idx} className="group/slot flex items-center justify-between gap-1 bg-primary/10 text-primary-foreground p-1.5 rounded-lg border border-primary/20 text-[10px] font-code">
+                            <div key={idx} className="group/slot flex items-center justify-between gap-1 bg-destructive/10 text-destructive-foreground p-1.5 rounded-lg border border-destructive/20 text-[10px] font-code">
                               <span className="truncate">{fromMin(s.fromMin)}-{fromMin(s.toMin)}</span>
                               <button 
                                 onClick={() => removeSlot(selectedPersonId, i, idx)}
-                                className="opacity-0 group-hover/slot:opacity-100 hover:text-destructive transition-opacity"
+                                className="opacity-0 group-hover/slot:opacity-100 hover:text-destructive-foreground/70 transition-opacity"
                               >
                                 <X className="w-3 h-3" />
                               </button>
@@ -268,7 +266,7 @@ export default function Home() {
                           {p.name}
                         </h4>
                         <p className="text-xs text-muted-foreground">
-                          {totalDays} días con disponibilidad
+                          {totalDays} días con bloqueos
                         </p>
                       </div>
                     </div>
@@ -297,7 +295,7 @@ export default function Home() {
               <div className="flex justify-between items-center">
                 <CardTitle className="text-xl flex items-center gap-2">
                   <Calculator className="w-5 h-5 text-accent" />
-                  Resultados
+                  Momentos Libres
                 </CardTitle>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={handleExport} className="h-8 bg-background/40">
@@ -313,16 +311,16 @@ export default function Home() {
               {!computed ? (
                 <div className="py-12 flex flex-col items-center justify-center text-center space-y-4">
                   <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center text-accent">
-                    <Users className="w-8 h-8" />
+                    <Clock className="w-8 h-8" />
                   </div>
                   <div className="space-y-1">
-                    <h3 className="font-headline text-lg">¿Listo para calcular?</h3>
+                    <h3 className="font-headline text-lg">¿Cuándo nos juntamos?</h3>
                     <p className="text-sm text-muted-foreground max-w-xs">
-                      Analizaremos todos los bloques horarios para encontrar la mejor coincidencia.
+                      Encontraremos los espacios donde todos están libres de bloqueos.
                     </p>
                   </div>
                   <Button onClick={() => setComputed(true)} className="bg-accent hover:bg-accent/90">
-                    Calcular mejor horario
+                    Calcular mejores huecos
                   </Button>
                 </div>
               ) : (
@@ -330,12 +328,12 @@ export default function Home() {
                   {/* Best Match */}
                   <div className="bg-accent/10 border border-accent/20 rounded-2xl p-6 relative">
                     <div className="absolute top-4 right-4 text-xs font-code text-accent font-bold px-2 py-1 rounded bg-accent/20">
-                      Top Match
+                      Ideal
                     </div>
                     {results.best ? (
                       <div className="space-y-4">
                         <div className="space-y-1">
-                          <h3 className="text-sm font-semibold text-accent uppercase tracking-widest">Mejor Opción</h3>
+                          <h3 className="text-sm font-semibold text-accent uppercase tracking-widest">Mejor Coincidencia</h3>
                           <div className="text-3xl font-headline flex items-baseline gap-2">
                             <span>{DAYS_NAMES[results.best.day]}</span>
                             <span className="text-muted-foreground text-xl">{fromMin(results.best.start)} - {fromMin(results.best.end)}</span>
@@ -343,7 +341,7 @@ export default function Home() {
                         </div>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
                           <Badge variant="outline" className="border-accent/40 bg-accent/10 text-accent font-bold">
-                            {results.best.count} / {state.people.length} Amigos
+                            {results.best.count} / {state.people.length} Libres
                           </Badge>
                           <span>{((results.best.count / state.people.length) * 100).toFixed(0)}% de asistencia</span>
                         </div>
@@ -357,13 +355,13 @@ export default function Home() {
                         </div>
                       </div>
                     ) : (
-                      <p className="text-center text-muted-foreground py-4 italic">No se encontraron coincidencias.</p>
+                      <p className="text-center text-muted-foreground py-4 italic">No se encontraron huecos libres comunes.</p>
                     )}
                   </div>
 
                   {/* Alternatives */}
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">Otras alternativas</h3>
+                    <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">Otras opciones libres</h3>
                     <div className="space-y-3">
                       {results.alternatives.length > 0 ? (
                         results.alternatives.map((alt, i) => (
@@ -374,9 +372,9 @@ export default function Home() {
                                 <span className="block text-[10px] text-muted-foreground font-code">{fromMin(alt.start)}</span>
                               </div>
                               <div className="space-y-0.5">
-                                <span className="text-sm font-medium">{alt.count} personas disponibles</span>
+                                <span className="text-sm font-medium">{alt.count} personas libres</span>
                                 <p className="text-[10px] text-muted-foreground line-clamp-1">
-                                  {alt.can.map(p => p.name).join(", ")}
+                                  Libres: {alt.can.map(p => p.name).join(", ")}
                                 </p>
                               </div>
                             </div>
@@ -394,18 +392,6 @@ export default function Home() {
               )}
             </CardContent>
           </Card>
-
-          <footer className="text-center space-y-4">
-            <p className="text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
-              Los datos se guardan localmente. Si cambias de navegador o borras la caché, perderás el progreso. 
-              ¡Usa la función de Exportar para respaldar!
-            </p>
-            <div className="flex justify-center gap-4">
-              <a href="#" className="text-[10px] font-bold uppercase tracking-widest text-accent hover:opacity-80">Privacidad Local</a>
-              <span className="text-muted-foreground/20">•</span>
-              <a href="#" className="text-[10px] font-bold uppercase tracking-widest text-accent hover:opacity-80">v1.0 TiempoJuntos</a>
-            </div>
-          </footer>
         </div>
       </div>
     </div>
