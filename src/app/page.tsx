@@ -28,14 +28,16 @@ import {
   Download, 
   Upload, 
   RotateCcw, 
-  Users, 
   Clock, 
-  Calendar as CalendarIcon,
   X,
   Edit2,
-  AlertTriangle
+  AlertTriangle,
+  CalendarDays,
+  CheckCircle2,
+  Filter
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 export default function Home() {
   const { toast } = useToast();
@@ -56,9 +58,10 @@ export default function Home() {
   const [fromTime, setFromTime] = useState<string>("18:00");
   const [toTime, setToTime] = useState<string>("21:00");
   const [computed, setComputed] = useState(false);
+  const [filterDay, setFilterDay] = useState<number | null>(null);
 
-  // Results are memoized based on state
-  const results = useMemo(() => computeResults(), [state]);
+  // Results are memoized based on state and filter
+  const results = useMemo(() => computeResults(filterDay ?? undefined), [state, filterDay]);
 
   if (!state) return null;
 
@@ -112,16 +115,16 @@ export default function Home() {
         <div className="space-y-2">
           <h1 className="text-4xl md:text-5xl font-headline tracking-tight">TiempoJuntos</h1>
           <p className="text-muted-foreground max-w-2xl leading-relaxed">
-            Agrega los horarios en los que <strong className="text-primary">NO PUEDES</strong> (trabajo, gimnasio, etc.).
-            Calcularemos los huecos libres donde todos coinciden para la junta.
+            Marca tus <strong className="text-destructive">bloqueos</strong> (trabajo, clase, gym). 
+            Encontraremos los huecos donde todos están libres.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline" className="font-code py-1.5 px-3 border-accent/20 bg-accent/5">
-            ⏱️ Bloques: {STEP}m
+            ⏱️ Rangos Precisos
           </Badge>
           <Badge variant="outline" className="font-code py-1.5 px-3 border-accent/20 bg-accent/5">
-            🗓️ Semanal
+            🗓️ Vista Semanal
           </Badge>
         </div>
       </header>
@@ -162,7 +165,7 @@ export default function Home() {
                 </div>
               </div>
               <CardDescription>
-                Ingresa los bloques de tiempo en los que NO estás disponible.
+                Indica cuándo NO puedes estar disponible para la junta.
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6 space-y-6">
@@ -228,7 +231,7 @@ export default function Home() {
                       <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{name}</span>
                       <div className="flex flex-col gap-1.5">
                         {slots.length === 0 ? (
-                          <span className="text-[10px] text-muted-foreground/40 italic">Todo libre</span>
+                          <span className="text-[10px] text-muted-foreground/40 italic">Libre</span>
                         ) : (
                           slots.sort((a,b) => a.fromMin - b.fromMin).map((s, idx) => (
                             <div key={idx} className="group/slot flex items-center justify-between gap-1 bg-destructive/10 text-destructive-foreground p-1.5 rounded-lg border border-destructive/20 text-[10px] font-code">
@@ -266,7 +269,7 @@ export default function Home() {
                           {p.name}
                         </h4>
                         <p className="text-xs text-muted-foreground">
-                          {totalDays} días con bloqueos
+                          {totalDays} días bloqueados
                         </p>
                       </div>
                     </div>
@@ -295,7 +298,7 @@ export default function Home() {
               <div className="flex justify-between items-center">
                 <CardTitle className="text-xl flex items-center gap-2">
                   <Calculator className="w-5 h-5 text-accent" />
-                  Momentos Libres
+                  Huecos Libres
                 </CardTitle>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={handleExport} className="h-8 bg-background/40">
@@ -316,24 +319,55 @@ export default function Home() {
                   <div className="space-y-1">
                     <h3 className="font-headline text-lg">¿Cuándo nos juntamos?</h3>
                     <p className="text-sm text-muted-foreground max-w-xs">
-                      Encontraremos los espacios donde todos están libres de bloqueos.
+                      Buscaremos los rangos donde la mayoría está libre de bloqueos.
                     </p>
                   </div>
                   <Button onClick={() => setComputed(true)} className="bg-accent hover:bg-accent/90">
-                    Calcular mejores huecos
+                    Calcular mejores momentos
                   </Button>
                 </div>
               ) : (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  {/* Best Match */}
-                  <div className="bg-accent/10 border border-accent/20 rounded-2xl p-6 relative">
-                    <div className="absolute top-4 right-4 text-xs font-code text-accent font-bold px-2 py-1 rounded bg-accent/20">
-                      Ideal
+                  
+                  {/* Phase selection: Select a day to focus */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                        <Filter className="w-3 h-3" /> Filtrar por día
+                      </h3>
+                      {filterDay !== null && (
+                        <Button variant="link" size="sm" onClick={() => setFilterDay(null)} className="h-auto p-0 text-accent text-xs">
+                          Ver todos
+                        </Button>
+                      )}
                     </div>
-                    {results.best ? (
+                    <div className="flex flex-wrap gap-2">
+                      {DAYS_NAMES.map((d, i) => (
+                        <Button 
+                          key={i} 
+                          variant={filterDay === i ? "default" : "outline"} 
+                          size="sm"
+                          onClick={() => setFilterDay(filterDay === i ? null : i)}
+                          className={cn(
+                            "h-8 text-xs",
+                            filterDay === i ? "bg-accent hover:bg-accent/90" : "bg-background/40"
+                          )}
+                        >
+                          {d}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Best Match Highlight */}
+                  {results.best && (
+                    <div className="bg-accent/10 border border-accent/20 rounded-2xl p-6 relative">
+                      <div className="absolute top-4 right-4 text-xs font-code text-accent font-bold px-2 py-1 rounded bg-accent/20">
+                        {results.best.count === state.people.length ? "¡Ideal!" : "Mejor opción"}
+                      </div>
                       <div className="space-y-4">
                         <div className="space-y-1">
-                          <h3 className="text-sm font-semibold text-accent uppercase tracking-widest">Mejor Coincidencia</h3>
+                          <h3 className="text-sm font-semibold text-accent uppercase tracking-widest">Sugerencia Principal</h3>
                           <div className="text-3xl font-headline flex items-baseline gap-2">
                             <span>{DAYS_NAMES[results.best.day]}</span>
                             <span className="text-muted-foreground text-xl">{fromMin(results.best.start)} - {fromMin(results.best.end)}</span>
@@ -343,7 +377,7 @@ export default function Home() {
                           <Badge variant="outline" className="border-accent/40 bg-accent/10 text-accent font-bold">
                             {results.best.count} / {state.people.length} Libres
                           </Badge>
-                          <span>{((results.best.count / state.people.length) * 100).toFixed(0)}% de asistencia</span>
+                          <span>{((results.best.count / state.people.length) * 100).toFixed(0)}% asistencia</span>
                         </div>
                         <div className="flex flex-wrap gap-2 pt-2">
                           {results.best.can.map(p => (
@@ -354,39 +388,57 @@ export default function Home() {
                           ))}
                         </div>
                       </div>
-                    ) : (
-                      <p className="text-center text-muted-foreground py-4 italic">No se encontraron huecos libres comunes.</p>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  {/* Alternatives */}
+                  {/* Alternatives grouped by day */}
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">Otras opciones libres</h3>
+                    <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">Otras opciones encontradas</h3>
                     <div className="space-y-3">
                       {results.alternatives.length > 0 ? (
                         results.alternatives.map((alt, i) => (
                           <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-border/40 bg-card/20 hover:bg-card/40 transition-colors group">
                             <div className="flex items-center gap-4">
-                              <div className="text-center w-12 border-r border-border/40 pr-4">
+                              <div className="text-center w-14 border-r border-border/40 pr-4">
                                 <span className="block text-xs font-bold uppercase">{DAYS_NAMES[alt.day]}</span>
-                                <span className="block text-[10px] text-muted-foreground font-code">{fromMin(alt.start)}</span>
+                                <span className="block text-[10px] text-muted-foreground font-code mt-0.5">{fromMin(alt.start)}</span>
                               </div>
                               <div className="space-y-0.5">
-                                <span className="text-sm font-medium">{alt.count} personas libres</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium">{fromMin(alt.start)} - {fromMin(alt.end)}</span>
+                                  {alt.count === state.people.length && (
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-accent" />
+                                  )}
+                                </div>
                                 <p className="text-[10px] text-muted-foreground line-clamp-1">
-                                  Libres: {alt.can.map(p => p.name).join(", ")}
+                                  {alt.can.map(p => p.name).join(", ")}
                                 </p>
                               </div>
                             </div>
-                            <Badge variant="secondary" className="group-hover:bg-accent group-hover:text-accent-foreground transition-colors">
-                              {alt.count} / {state.people.length}
+                            <Badge variant="secondary" className={cn(
+                              "group-hover:bg-accent group-hover:text-accent-foreground transition-colors",
+                              alt.count === state.people.length && "bg-accent/20 text-accent border-accent/20"
+                            )}>
+                              {alt.count}/{state.people.length}
                             </Badge>
                           </div>
                         ))
                       ) : (
-                        <p className="text-xs text-muted-foreground italic">No hay más alternativas viables.</p>
+                        <div className="py-8 text-center">
+                          <p className="text-xs text-muted-foreground italic">No se encontraron más opciones para los filtros seleccionados.</p>
+                        </div>
                       )}
                     </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-border/40">
+                    <Button 
+                      variant="outline" 
+                      className="w-full gap-2 border-accent/20 text-accent hover:bg-accent/5"
+                      onClick={() => setComputed(false)}
+                    >
+                      <RotateCcw className="w-4 h-4" /> Re-ajustar bloqueos
+                    </Button>
                   </div>
                 </div>
               )}

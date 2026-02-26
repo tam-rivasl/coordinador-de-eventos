@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { SchedulerState, Person, Availability, TimeRange, SlotResult, STEP } from "@/types/scheduler";
-import { uid, mergeRanges, buildBusySet, scoreAlt } from "@/lib/scheduler-utils";
+import { uid, mergeRanges, getFreeRanges, scoreAlt } from "@/lib/scheduler-utils";
 
 const LS_KEY = "tiempojuntos_v1";
 
@@ -95,59 +95,32 @@ export function useScheduler() {
     });
   };
 
-  const computeResults = (): { best: SlotResult | null; alternatives: SlotResult[] } => {
-    if (!state || state.people.length === 0) return { best: null, alternatives: [] };
+  const computeResults = (selectedDay?: number): { best: SlotResult | null; alternatives: SlotResult[]; byDay: Record<number, SlotResult[]> } => {
+    if (!state || state.people.length === 0) return { best: null, alternatives: [], byDay: {} };
 
-    const alts: SlotResult[] = [];
-    const people = state.people;
-
-    // Define the range of interest (e.g., 08:00 to 24:00 for hangouts)
-    // Or just check the whole 24 hours.
-    const START_H = 8 * 60;
-    const END_H = 24 * 60;
+    const allRanges: SlotResult[] = [];
+    const byDay: Record<number, SlotResult[]> = {};
 
     for (let day = 0; day < 7; day++) {
-      const busySets = people.map((p) => ({
-        p,
-        set: buildBusySet(p.id, day, state.availability),
-      }));
-
-      for (let t = START_H; t < END_H; t += STEP) {
-        // A person is free if they are NOT in the busy set
-        const freePeople = busySets.filter((x) => !x.set.has(t)).map((x) => x.p);
-        
-        if (freePeople.length > 0) {
-          alts.push({
-            day,
-            start: t,
-            end: t + STEP,
-            count: freePeople.length,
-            can: freePeople,
-          });
-        }
-      }
+      const ranges = getFreeRanges(day, state.people, state.availability);
+      byDay[day] = ranges;
+      allRanges.push(...ranges);
     }
 
-    if (alts.length === 0) return { best: null, alternatives: [] };
+    if (allRanges.length === 0) return { best: null, alternatives: [], byDay: {} };
 
-    // Sort by most people free, then earlier time
-    const sorted = alts.sort((a, b) => scoreAlt(b) - scoreAlt(a));
+    // Sort by "quality" (max people, then earlier)
+    const sorted = allRanges.sort((a, b) => scoreAlt(b) - scoreAlt(a));
     
-    const uniqueAlts: SlotResult[] = [];
-    const seen = new Set<string>();
-
-    for (const a of sorted) {
-      const key = `${a.day}-${a.start}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        uniqueAlts.push(a);
-      }
-      if (uniqueAlts.length >= 15) break;
-    }
+    // Filter by selected day if provided
+    const filteredSorted = selectedDay !== undefined 
+      ? sorted.filter(r => r.day === selectedDay)
+      : sorted;
 
     return {
-      best: uniqueAlts[0] || null,
-      alternatives: uniqueAlts.slice(1),
+      best: filteredSorted[0] || null,
+      alternatives: filteredSorted.slice(1, 20),
+      byDay
     };
   };
 

@@ -39,6 +39,7 @@ export function buildBusySet(personId: string, day: number, availability: Availa
   const ranges = availability[personId]?.[day] || [];
   const s = new Set<number>();
   for (const r of ranges) {
+    // We populate the set with the start of each STEP interval
     for (let t = r.fromMin; t < r.toMin; t += STEP) {
       s.add(t);
     }
@@ -46,9 +47,49 @@ export function buildBusySet(personId: string, day: number, availability: Availa
   return s;
 }
 
+/**
+ * Finds continuous free ranges for a specific day and group of people.
+ */
+export function getFreeRanges(day: number, people: Person[], availability: Availability): SlotResult[] {
+  const START = 8 * 60; // 8:00 AM
+  const END = 24 * 60;  // Midnight
+  
+  const results: SlotResult[] = [];
+  let currentGroup: Person[] = [];
+  let currentStart = START;
+
+  const busySets = people.map(p => ({
+    p,
+    set: buildBusySet(p.id, day, availability)
+  }));
+
+  for (let t = START; t <= END; t += STEP) {
+    const freeAtT = busySets.filter(x => !x.set.has(t)).map(x => x.p);
+    
+    const currentIds = currentGroup.map(p => p.id).sort().join(',');
+    const newIds = freeAtT.map(p => p.id).sort().join(',');
+
+    if (t === START) {
+      currentGroup = freeAtT;
+    } else if (newIds !== currentIds || t === END) {
+      if (currentGroup.length > 0) {
+        results.push({
+          day,
+          start: currentStart,
+          end: t,
+          count: currentGroup.length,
+          can: currentGroup
+        });
+      }
+      currentGroup = freeAtT;
+      currentStart = t;
+    }
+  }
+  return results;
+}
+
 export function scoreAlt(alt: SlotResult): number {
-  // Prefer results with more people, then earlier days, then earlier times.
-  // We subtract day and start from a large number so smaller (earlier) values are better.
+  // Prioritize ranges with 100% attendance first
   return alt.count * 1000000 - alt.day * 1000 - alt.start;
 }
 
