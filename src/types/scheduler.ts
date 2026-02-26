@@ -1,0 +1,27 @@
+export type TimeRange = {
+  fromMin: number;
+  toMin: number;
+};
+
+export type Person = {
+  id: string;
+  name: string;
+};
+
+export type Availability = Record<string, Record<number, TimeRange[]>>;
+
+export type SchedulerState = {
+  people: Person[];
+  availability: Availability;
+};
+
+export type SlotResult = {
+  day: number;
+  start: number;
+  end: number;
+  count: number;
+  can: Person[];
+};
+
+export const DAYS_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+export const STEP = 30;
