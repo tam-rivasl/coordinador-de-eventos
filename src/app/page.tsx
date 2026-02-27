@@ -128,7 +128,7 @@ export default function Home() {
 
   if (!state) return (
     <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="animate-pulse text-muted-foreground">Cargando...</div>
+      <div className="animate-pulse text-muted-foreground">Cargando datos...</div>
     </div>
   );
 
@@ -148,7 +148,7 @@ export default function Home() {
             </p>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" size="sm" onClick={() => setIsAddModalOpen(true)} className="rounded-full gap-2">
+            <Button variant="outline" size="sm" onClick={() => { setTempName(""); setIsAddModalOpen(true); }} className="rounded-full gap-2">
               <UserPlus className="w-4 h-4" /> Añadir Amigo
             </Button>
             <Button variant="ghost" size="sm" onClick={handleReset} className="rounded-full text-muted-foreground hover:text-destructive">
@@ -416,6 +416,7 @@ export default function Home() {
                 value={tempName}
                 onChange={(e) => setTempName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddPersonSubmit()}
+                autoFocus
               />
             </div>
           </div>
@@ -424,7 +425,7 @@ export default function Home() {
               Cancelar
             </Button>
             <Button type="button" onClick={handleAddPersonSubmit}>
-              Guardar
+              Guardar Amigo
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -446,6 +447,7 @@ export default function Home() {
                 value={tempName}
                 onChange={(e) => setTempName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleEditPersonSubmit()}
+                autoFocus
               />
             </div>
           </div>
