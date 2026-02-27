@@ -9,6 +9,18 @@ const LS_KEY = "tiempojuntos_strict_v1";
 export function useScheduler() {
   const [state, setState] = useState<SchedulerState | null>(null);
 
+  const initializeDefault = useCallback(() => {
+    const defaultState: SchedulerState = {
+      people: [
+        { id: uid(), name: "Yo" },
+        { id: uid(), name: "Amigo 1" },
+      ],
+      availability: {},
+    };
+    setState(defaultState);
+    localStorage.setItem(LS_KEY, JSON.stringify(defaultState));
+  }, []);
+
   useEffect(() => {
     const saved = localStorage.getItem(LS_KEY);
     if (saved) {
@@ -20,18 +32,7 @@ export function useScheduler() {
     } else {
       initializeDefault();
     }
-  }, []);
-
-  const initializeDefault = () => {
-    const defaultState: SchedulerState = {
-      people: [
-        { id: uid(), name: "Yo" },
-        { id: uid(), name: "Amigo 1" },
-      ],
-      availability: {},
-    };
-    save(defaultState);
-  };
+  }, [initializeDefault]);
 
   const save = (newState: SchedulerState) => {
     setState(newState);
@@ -46,6 +47,9 @@ export function useScheduler() {
 
   const removePerson = (id: string) => {
     if (!state) return;
+    // No permitir borrar al usuario principal ("Yo")
+    if (state.people[0].id === id) return;
+    
     const newPeople = state.people.filter((p) => p.id !== id);
     const newAvailability = { ...state.availability };
     delete newAvailability[id];
@@ -97,7 +101,6 @@ export function useScheduler() {
 
     for (let day = 0; day < 7; day++) {
       const ranges = getFreeRanges(day, state.people, state.availability);
-      // Filtramos solo huecos con asistencia perfecta (todos pueden)
       const perfectRanges = ranges.filter(r => r.count === totalPeople);
       allOptions.push(...perfectRanges);
     }
@@ -106,7 +109,6 @@ export function useScheduler() {
       ? allOptions.filter(o => o.day === selectedDay)
       : allOptions;
 
-    // Ordenamos por duración (el hueco más largo primero)
     const sorted = filtered.sort((a, b) => (b.end - b.start) - (a.end - a.start));
 
     return {
@@ -116,7 +118,8 @@ export function useScheduler() {
   }, [state]);
 
   const resetAll = () => {
-    if (confirm("¿Limpiar todos los datos?")) {
+    const confirmed = window.confirm("¿Estás seguro de que deseas limpiar todos los datos? Esto no se puede deshacer.");
+    if (confirmed) {
       localStorage.removeItem(LS_KEY);
       initializeDefault();
     }

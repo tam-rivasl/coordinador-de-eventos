@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useScheduler } from "@/hooks/use-scheduler";
-import { DAYS_NAMES, type SlotResult } from "@/types/scheduler";
+import { DAYS_NAMES } from "@/types/scheduler";
 import { colorFromId, fromMin, toMin } from "@/lib/scheduler-utils";
 import { 
   Card, 
@@ -38,7 +38,6 @@ import {
   Users
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
 
 export default function Home() {
   const { toast } = useToast();
@@ -59,7 +58,6 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<string>("input");
   const [filterDay, setFilterDay] = useState<number | null>(null);
 
-  // Solo mostramos alternativas donde TODOS pueden (perfect matches)
   const results = useMemo(() => {
     const res = computeResults(filterDay ?? undefined);
     return {
@@ -82,6 +80,7 @@ export default function Home() {
       return;
     }
     addSlot(selectedPersonId, parseInt(selectedDay), from, to);
+    toast({ title: "Horario bloqueado", description: "El bloqueo se ha registrado correctamente." });
   };
 
   const handleBlockFullDay = () => {
@@ -89,7 +88,19 @@ export default function Home() {
     toast({ title: "Día Bloqueado", description: "Se ha marcado el día completo como ocupado." });
   };
 
-  if (!state) return null;
+  const handleAddPerson = () => {
+    const name = window.prompt("Nombre del amigo:");
+    if (name && name.trim()) {
+      addPerson(name.trim());
+      toast({ title: "Amigo añadido", description: `${name} ha sido agregado a la lista.` });
+    }
+  };
+
+  if (!state) return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="animate-pulse text-muted-foreground">Cargando...</div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
@@ -103,18 +114,15 @@ export default function Home() {
             </div>
             <h1 className="text-5xl font-headline font-bold tracking-tight">TiempoJuntos</h1>
             <p className="text-muted-foreground text-lg max-w-xl">
-              Encuentra el momento exacto donde <span className="text-primary font-semibold">todos están libres</span>. Registra tus bloqueos y visualiza la disponibilidad común.
+              Encuentra el momento exacto donde <span className="text-primary font-semibold">todos están libres</span>.
             </p>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" size="sm" onClick={() => {
-              const name = prompt("Nombre del amigo:");
-              if (name) addPerson(name);
-            }} className="rounded-full gap-2">
+            <Button variant="outline" size="sm" onClick={handleAddPerson} className="rounded-full gap-2">
               <UserPlus className="w-4 h-4" /> Añadir Amigo
             </Button>
             <Button variant="ghost" size="sm" onClick={resetAll} className="rounded-full text-muted-foreground hover:text-destructive">
-              <RotateCcw className="w-4 h-4" /> Resetear Todo
+              <RotateCcw className="w-4 h-4" /> Limpiar Datos
             </Button>
           </div>
         </header>
@@ -125,7 +133,7 @@ export default function Home() {
               1. Registrar Bloqueos
             </TabsTrigger>
             <TabsTrigger value="results" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
-              2. Huecos Comunes
+              2. Disponibilidad Común
             </TabsTrigger>
           </TabsList>
 
@@ -138,7 +146,7 @@ export default function Home() {
                     <CardTitle className="text-lg flex items-center gap-2">
                       <Clock className="w-5 h-5 text-primary" /> Nuevo Bloqueo
                     </CardTitle>
-                    <CardDescription>Indica cuándo NO estás disponible.</CardDescription>
+                    <CardDescription>Indica cuándo NO están disponibles.</CardDescription>
                   </CardHeader>
                   <CardContent className="pt-6 space-y-4">
                     <div className="space-y-2">
@@ -185,14 +193,24 @@ export default function Home() {
                     <Info className="w-4 h-4" /> Amigos Registrados
                   </h3>
                   <div className="space-y-2">
-                    {state.people.map(p => (
+                    {state.people.map((p, idx) => (
                       <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-card border border-border group">
                         <div className="flex items-center gap-3">
                           <div className="w-2 h-8 rounded-full" style={{ backgroundColor: colorFromId(p.id) }} />
-                          <span className="font-medium">{p.name} {state.people[0].id === p.id && "(Yo)"}</span>
+                          <span className="font-medium">{p.name} {idx === 0 && "(Yo)"}</span>
                         </div>
-                        {state.people[0].id !== p.id && (
-                          <Button variant="ghost" size="icon" onClick={() => removePerson(p.id)} className="opacity-0 group-hover:opacity-100 text-destructive">
+                        {idx !== 0 && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => {
+                              if (window.confirm(`¿Eliminar a ${p.name}?`)) {
+                                removePerson(p.id);
+                                if (selectedPersonId === p.id) setSelectedPersonId(state.people[0].id);
+                              }
+                            }} 
+                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                          >
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         )}
@@ -208,7 +226,7 @@ export default function Home() {
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <div>
                       <CardTitle className="text-lg">Resumen de Bloqueos</CardTitle>
-                      <CardDescription>Vista semanal del amigo seleccionado.</CardDescription>
+                      <CardDescription>Vista semanal de la persona seleccionada.</CardDescription>
                     </div>
                     <Badge variant="outline" className="font-code">
                       {state.people.find(p => p.id === selectedPersonId)?.name}
@@ -223,7 +241,7 @@ export default function Home() {
                             <div className="text-center pb-2 border-b border-border">
                               <span className="text-[10px] font-black uppercase text-muted-foreground">{name}</span>
                             </div>
-                            <div className="min-h-[200px] bg-muted/20 rounded-lg p-1 space-y-1">
+                            <div className="min-h-[250px] bg-muted/20 rounded-lg p-1 space-y-1">
                               {slots.map((s, idx) => (
                                 <div key={idx} className="relative group/block bg-destructive/10 text-destructive border border-destructive/20 rounded-md p-2 text-[10px] font-bold">
                                   {fromMin(s.fromMin)} - {fromMin(s.toMin)}
@@ -233,7 +251,7 @@ export default function Home() {
                                 </div>
                               ))}
                               {slots.length === 0 && (
-                                <div className="h-full flex items-center justify-center opacity-20 italic text-[10px]">Sin bloqueos</div>
+                                <div className="h-full flex items-center justify-center opacity-20 italic text-[10px] py-10">Libre</div>
                               )}
                             </div>
                           </div>
@@ -249,7 +267,6 @@ export default function Home() {
           <TabsContent value="results" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               
-              {/* Filters */}
               <div className="lg:col-span-3 space-y-6">
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold uppercase text-muted-foreground tracking-widest">Filtrar Día</h3>
@@ -270,20 +287,19 @@ export default function Home() {
 
                 <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3">
                   <h4 className="text-sm font-bold text-primary flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4" /> Disponibilidad Total
+                    <CheckCircle2 className="w-4 h-4" /> Intersección Perfecta
                   </h4>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Solo se muestran los horarios donde <strong>absolutamente todos</strong> los amigos están libres.
+                    Estos son los momentos donde <strong>todos</strong> están libres simultáneamente.
                   </p>
                 </div>
               </div>
 
-              {/* Perfect Slots List */}
               <div className="lg:col-span-9 space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {results.alternatives.length > 0 ? (
                     results.alternatives.map((alt, i) => (
-                      <Card key={i} className="group hover:border-primary/50 transition-all duration-300 cursor-default overflow-hidden border-primary/40 bg-primary/5 shadow-md shadow-primary/5">
+                      <Card key={i} className="group hover:border-primary/50 transition-all duration-300 border-primary/40 bg-primary/5 shadow-md">
                         <CardContent className="p-0">
                           <div className="flex items-stretch h-full">
                             <div className="w-12 flex flex-col items-center justify-center font-black text-[10px] uppercase [writing-mode:vertical-lr] rotate-180 bg-primary text-primary-foreground">
@@ -294,14 +310,13 @@ export default function Home() {
                                 <div className="space-y-1">
                                   <div className="text-2xl font-headline font-bold flex items-center gap-2">
                                     {fromMin(alt.start)} - {fromMin(alt.end)}
-                                    <CheckCircle2 className="w-5 h-5 text-primary" />
                                   </div>
                                   <p className="text-xs text-muted-foreground">
-                                    Duración disponible: {((alt.end - alt.start) / 60).toFixed(1)} horas
+                                    Ventana de {((alt.end - alt.start) / 60).toFixed(1)} horas
                                   </p>
                                 </div>
                                 <Badge className="bg-primary text-primary-foreground">
-                                  {alt.count} / {state.people.length} libres
+                                  {alt.count} / {state.people.length} disponibles
                                 </Badge>
                               </div>
 
@@ -313,8 +328,8 @@ export default function Home() {
                                 ))}
                               </div>
                             </div>
-                            <div className="w-10 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-                              <ChevronRight className="w-5 h-5 opacity-20 group-hover:opacity-100 transition-all group-hover:translate-x-1" />
+                            <div className="w-10 flex items-center justify-center">
+                              <ChevronRight className="w-5 h-5 opacity-20" />
                             </div>
                           </div>
                         </CardContent>
@@ -326,9 +341,9 @@ export default function Home() {
                         <AlertCircle className="w-8 h-8" />
                       </div>
                       <div className="space-y-1">
-                        <h3 className="text-xl font-bold">No hay coincidencias totales</h3>
+                        <h3 className="text-xl font-bold">Sin coincidencias totales</h3>
                         <p className="text-muted-foreground max-w-xs mx-auto text-sm">
-                          No existe ningún horario donde todos los amigos estén libres a la vez. Intenta reducir algunos bloqueos.
+                          Parece que no hay un horario donde todos estén libres. Prueba a eliminar algún bloqueo.
                         </p>
                       </div>
                     </div>
