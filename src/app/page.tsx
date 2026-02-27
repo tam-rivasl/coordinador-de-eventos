@@ -2,9 +2,8 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useScheduler } from "@/hooks/use-scheduler";
-import { DAYS_NAMES, type SchedulerState, type SlotResult } from "@/types/scheduler";
+import { DAYS_NAMES, type SlotResult } from "@/types/scheduler";
 import { colorFromId, fromMin, toMin } from "@/lib/scheduler-utils";
-import { recommendMeeting } from "@/ai/flows/recommend-meeting-flow";
 import { 
   Card, 
   CardHeader, 
@@ -26,7 +25,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Plus, 
   Trash2, 
-  Sparkles, 
   RotateCcw, 
   Clock, 
   X,
@@ -36,7 +34,8 @@ import {
   AlertCircle,
   ChevronRight,
   Info,
-  Ban
+  Ban,
+  Users
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -58,11 +57,16 @@ export default function Home() {
   const [fromTime, setFromTime] = useState<string>("09:00");
   const [toTime, setToTime] = useState<string>("11:00");
   const [activeTab, setActiveTab] = useState<string>("input");
-  const [aiRecommendation, setAiRecommendation] = useState<{ text: string, idx: number } | null>(null);
-  const [isAiLoading, setIsAiLoading] = useState(false);
   const [filterDay, setFilterDay] = useState<number | null>(null);
 
-  const results = useMemo(() => computeResults(filterDay ?? undefined), [state, filterDay]);
+  // Solo mostramos alternativas donde TODOS pueden (perfect matches)
+  const results = useMemo(() => {
+    const res = computeResults(filterDay ?? undefined);
+    return {
+      ...res,
+      alternatives: res.alternatives.filter(alt => alt.count === (state?.people.length || 0))
+    };
+  }, [state, filterDay, computeResults]);
 
   useEffect(() => {
     if (state?.people.length && !selectedPersonId) {
@@ -78,28 +82,11 @@ export default function Home() {
       return;
     }
     addSlot(selectedPersonId, parseInt(selectedDay), from, to);
-    setAiRecommendation(null);
   };
 
   const handleBlockFullDay = () => {
     addSlot(selectedPersonId, parseInt(selectedDay), 0, 1439);
     toast({ title: "Día Bloqueado", description: "Se ha marcado el día completo como ocupado." });
-  };
-
-  const getAiHelp = async () => {
-    if (!results.alternatives.length) return;
-    setIsAiLoading(true);
-    try {
-      const res = await recommendMeeting({ 
-        slots: results.alternatives.slice(0, 10), 
-        peopleCount: state?.people.length || 0 
-      });
-      setAiRecommendation({ text: res.recommendation, idx: res.bestSlotIdx });
-    } catch (e) {
-      toast({ title: "Error de IA", description: "No pude procesar la recomendación ahora.", variant: "destructive" });
-    } finally {
-      setIsAiLoading(false);
-    }
   };
 
   if (!state) return null;
@@ -112,11 +99,11 @@ export default function Home() {
         <header className="flex flex-col md:flex-row justify-between items-end gap-6 border-b border-border pb-8">
           <div className="space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold uppercase tracking-wider">
-              <Sparkles className="w-3 h-3" /> Agenda Inteligente
+              <Users className="w-3 h-3" /> Coordinación de Grupos
             </div>
             <h1 className="text-5xl font-headline font-bold tracking-tight">TiempoJuntos</h1>
             <p className="text-muted-foreground text-lg max-w-xl">
-              Coordinar amigos no debería ser un trabajo. Registra tus <span className="text-destructive font-semibold">bloqueos</span> y deja que la IA encuentre el hueco perfecto.
+              Encuentra el momento exacto donde <span className="text-primary font-semibold">todos están libres</span>. Registra tus bloqueos y visualiza la disponibilidad común.
             </p>
           </div>
           <div className="flex gap-3">
@@ -127,7 +114,7 @@ export default function Home() {
               <UserPlus className="w-4 h-4" /> Añadir Amigo
             </Button>
             <Button variant="ghost" size="sm" onClick={resetAll} className="rounded-full text-muted-foreground hover:text-destructive">
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-4 h-4" /> Resetear Todo
             </Button>
           </div>
         </header>
@@ -138,7 +125,7 @@ export default function Home() {
               1. Registrar Bloqueos
             </TabsTrigger>
             <TabsTrigger value="results" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
-              2. Ver Disponibilidad
+              2. Huecos Comunes
             </TabsTrigger>
           </TabsList>
 
@@ -195,7 +182,7 @@ export default function Home() {
 
                 <div className="space-y-3">
                   <h3 className="text-sm font-bold uppercase text-muted-foreground flex items-center gap-2">
-                    <Info className="w-4 h-4" /> Amigos en la Junta
+                    <Info className="w-4 h-4" /> Amigos Registrados
                   </h3>
                   <div className="space-y-2">
                     {state.people.map(p => (
@@ -246,7 +233,7 @@ export default function Home() {
                                 </div>
                               ))}
                               {slots.length === 0 && (
-                                <div className="h-full flex items-center justify-center opacity-20 italic text-[10px]">Libre</div>
+                                <div className="h-full flex items-center justify-center opacity-20 italic text-[10px]">Sin bloqueos</div>
                               )}
                             </div>
                           </div>
@@ -262,7 +249,7 @@ export default function Home() {
           <TabsContent value="results" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               
-              {/* Filter and Quick Stats */}
+              {/* Filters */}
               <div className="lg:col-span-3 space-y-6">
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold uppercase text-muted-foreground tracking-widest">Filtrar Día</h3>
@@ -281,107 +268,68 @@ export default function Home() {
                   </div>
                 </div>
 
-                <Card className="bg-primary/5 border-primary/20">
-                  <CardContent className="pt-6 space-y-4">
-                    <div className="flex items-center gap-2 text-primary">
-                      <Sparkles className="w-5 h-5" />
-                      <h4 className="font-bold">Análisis Experto</h4>
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Priorizamos horarios donde <strong>todos</strong> pueden. Si bloqueaste un día entero, ese día bajará al final de la lista.
-                    </p>
-                    <Button onClick={getAiHelp} disabled={isAiLoading || !results.alternatives.length} className="w-full bg-primary hover:bg-primary/90">
-                      {isAiLoading ? "Analizando..." : "Recomendación IA"}
-                    </Button>
-                  </CardContent>
-                </Card>
+                <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3">
+                  <h4 className="text-sm font-bold text-primary flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" /> Disponibilidad Total
+                  </h4>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Solo se muestran los horarios donde <strong>absolutamente todos</strong> los amigos están libres.
+                  </p>
+                </div>
               </div>
 
-              {/* Main Results View */}
+              {/* Perfect Slots List */}
               <div className="lg:col-span-9 space-y-6">
-                {aiRecommendation && (
-                  <Card className="border-accent bg-accent/5 overflow-hidden animate-in zoom-in-95 duration-300">
-                    <div className="p-1 bg-accent flex items-center justify-center text-[10px] font-black text-white uppercase tracking-[0.2em]">Sugerencia de la IA</div>
-                    <CardContent className="p-6 flex gap-6 items-start">
-                      <div className="w-12 h-12 rounded-2xl bg-accent flex items-center justify-center text-white shrink-0">
-                        <Sparkles className="w-6 h-6" />
-                      </div>
-                      <div className="space-y-2">
-                        <p className="text-lg font-medium leading-snug">{aiRecommendation.text}</p>
-                        <Badge variant="secondary" className="bg-accent/20 text-accent border-accent/20">
-                          Opción #{aiRecommendation.idx + 1} del listado
-                        </Badge>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {results.alternatives.length > 0 ? (
-                    results.alternatives.map((alt, i) => {
-                      const isPerfect = alt.count === state.people.length;
-                      const isMainMissing = alt.cannot.some(p => p.id === state.people[0].id);
-                      
-                      return (
-                        <Card key={i} className={cn(
-                          "group hover:border-primary/50 transition-all duration-300 cursor-default overflow-hidden",
-                          isPerfect ? "border-primary/40 bg-primary/5 shadow-md shadow-primary/5" : "border-border opacity-80",
-                          isMainMissing && "opacity-40 border-dashed"
-                        )}>
-                          <CardContent className="p-0">
-                            <div className="flex items-stretch h-full">
-                              <div className={cn(
-                                "w-12 flex flex-col items-center justify-center font-black text-[10px] uppercase [writing-mode:vertical-lr] rotate-180",
-                                isPerfect ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                              )}>
-                                {DAYS_NAMES[alt.day]}
-                              </div>
-                              <div className="flex-1 p-5 space-y-4">
-                                <div className="flex justify-between items-start">
-                                  <div className="space-y-1">
-                                    <div className="text-2xl font-headline font-bold flex items-center gap-2">
-                                      {fromMin(alt.start)} - {fromMin(alt.end)}
-                                      {isPerfect && <CheckCircle2 className="w-5 h-5 text-primary" />}
-                                    </div>
-                                    <p className="text-xs text-muted-foreground">
-                                      Duración: {((alt.end - alt.start) / 60).toFixed(1)} horas
-                                    </p>
+                    results.alternatives.map((alt, i) => (
+                      <Card key={i} className="group hover:border-primary/50 transition-all duration-300 cursor-default overflow-hidden border-primary/40 bg-primary/5 shadow-md shadow-primary/5">
+                        <CardContent className="p-0">
+                          <div className="flex items-stretch h-full">
+                            <div className="w-12 flex flex-col items-center justify-center font-black text-[10px] uppercase [writing-mode:vertical-lr] rotate-180 bg-primary text-primary-foreground">
+                              {DAYS_NAMES[alt.day]}
+                            </div>
+                            <div className="flex-1 p-5 space-y-4">
+                              <div className="flex justify-between items-start">
+                                <div className="space-y-1">
+                                  <div className="text-2xl font-headline font-bold flex items-center gap-2">
+                                    {fromMin(alt.start)} - {fromMin(alt.end)}
+                                    <CheckCircle2 className="w-5 h-5 text-primary" />
                                   </div>
-                                  <Badge variant={isPerfect ? "default" : "secondary"} className={cn(!isPerfect && "bg-muted text-muted-foreground border-transparent")}>
-                                    {alt.count} / {state.people.length} libres
-                                  </Badge>
+                                  <p className="text-xs text-muted-foreground">
+                                    Duración disponible: {((alt.end - alt.start) / 60).toFixed(1)} horas
+                                  </p>
                                 </div>
+                                <Badge className="bg-primary text-primary-foreground">
+                                  {alt.count} / {state.people.length} libres
+                                </Badge>
+                              </div>
 
-                                <div className="space-y-3">
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {alt.can.map(p => (
-                                      <div key={p.id} className="w-2.5 h-2.5 rounded-full ring-2 ring-background" title={p.name} style={{ backgroundColor: colorFromId(p.id) }} />
-                                    ))}
-                                  </div>
-                                  {alt.cannot.length > 0 && (
-                                    <div className="flex items-center gap-2 text-[10px] text-destructive font-medium uppercase tracking-wider">
-                                      <AlertCircle className="w-3 h-3" />
-                                      {isMainMissing ? "TÚ NO PUEDES" : `No pueden: ${alt.cannot.map(p => p.name).join(", ")}`}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="w-10 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-                                <ChevronRight className="w-5 h-5 opacity-20 group-hover:opacity-100 transition-all group-hover:translate-x-1" />
+                              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-primary/10">
+                                {alt.can.map(p => (
+                                  <Badge key={p.id} variant="outline" className="text-[10px] font-medium border-primary/20 bg-background/50">
+                                    {p.name}
+                                  </Badge>
+                                ))}
                               </div>
                             </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })
+                            <div className="w-10 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                              <ChevronRight className="w-5 h-5 opacity-20 group-hover:opacity-100 transition-all group-hover:translate-x-1" />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
                   ) : (
-                    <div className="col-span-full py-20 text-center space-y-4 border-2 border-dashed border-border rounded-3xl">
+                    <div className="col-span-full py-20 text-center space-y-4 border-2 border-dashed border-border rounded-3xl bg-muted/10">
                       <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto text-muted-foreground">
                         <AlertCircle className="w-8 h-8" />
                       </div>
                       <div className="space-y-1">
-                        <h3 className="text-xl font-bold">Sin huecos comunes</h3>
-                        <p className="text-muted-foreground max-w-xs mx-auto text-sm">Prueba a eliminar algunos bloqueos o revisa si alguien tiene todo el día ocupado.</p>
+                        <h3 className="text-xl font-bold">No hay coincidencias totales</h3>
+                        <p className="text-muted-foreground max-w-xs mx-auto text-sm">
+                          No existe ningún horario donde todos los amigos estén libres a la vez. Intenta reducir algunos bloqueos.
+                        </p>
                       </div>
                     </div>
                   )}

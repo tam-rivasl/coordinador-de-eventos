@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { SchedulerState, Person, Availability, TimeRange, SlotResult } from "@/types/scheduler";
-import { uid, mergeRanges, getFreeRanges, scoreAlt } from "@/lib/scheduler-utils";
+import { useState, useEffect, useCallback } from "react";
+import { SchedulerState, Person, Availability, SlotResult } from "@/types/scheduler";
+import { uid, mergeRanges, getFreeRanges } from "@/lib/scheduler-utils";
 
-const LS_KEY = "tiempojuntos_expert_v3";
+const LS_KEY = "tiempojuntos_strict_v1";
 
 export function useScheduler() {
   const [state, setState] = useState<SchedulerState | null>(null);
@@ -89,36 +89,31 @@ export function useScheduler() {
     });
   };
 
-  const computeResults = (selectedDay?: number): { best: SlotResult | null; alternatives: SlotResult[] } => {
+  const computeResults = useCallback((selectedDay?: number): { best: SlotResult | null; alternatives: SlotResult[] } => {
     if (!state || state.people.length === 0) return { best: null, alternatives: [] };
 
+    const totalPeople = state.people.length;
     const allOptions: SlotResult[] = [];
-    const mainPersonId = state.people[0]?.id;
 
     for (let day = 0; day < 7; day++) {
       const ranges = getFreeRanges(day, state.people, state.availability);
-      allOptions.push(...ranges);
+      // Filtramos solo huecos con asistencia perfecta (todos pueden)
+      const perfectRanges = ranges.filter(r => r.count === totalPeople);
+      allOptions.push(...perfectRanges);
     }
 
     const filtered = selectedDay !== undefined 
       ? allOptions.filter(o => o.day === selectedDay)
       : allOptions;
 
-    const totalPeople = state.people.length;
-    
-    // El ordenamiento ahora es mucho más estricto
-    const sorted = filtered.sort((a, b) => 
-      scoreAlt(b, totalPeople, mainPersonId) - scoreAlt(a, totalPeople, mainPersonId)
-    );
-
-    // Filtrar opciones que son realmente malas (ej: donde falta el organizador y hay mejores opciones)
-    const validResults = sorted.filter(s => scoreAlt(s, totalPeople, mainPersonId) > -5000);
+    // Ordenamos por duración (el hueco más largo primero)
+    const sorted = filtered.sort((a, b) => (b.end - b.start) - (a.end - a.start));
 
     return {
-      best: validResults[0] || null,
-      alternatives: validResults.slice(0, 30)
+      best: sorted[0] || null,
+      alternatives: sorted
     };
-  };
+  }, [state]);
 
   const resetAll = () => {
     if (confirm("¿Limpiar todos los datos?")) {
