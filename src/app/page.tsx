@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useScheduler } from "@/hooks/use-scheduler";
-import { DAYS_NAMES } from "@/types/scheduler";
+import { DAYS_NAMES, Person } from "@/types/scheduler";
 import { colorFromId, fromMin, toMin } from "@/lib/scheduler-utils";
 import { 
   Card, 
@@ -35,15 +35,25 @@ import {
   ChevronRight,
   Info,
   Ban,
-  Users
+  Users,
+  Edit2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function Home() {
   const { toast } = useToast();
   const { 
     state, 
     addPerson, 
+    updatePerson,
     removePerson, 
     addSlot, 
     removeSlot, 
@@ -58,16 +68,18 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<string>("input");
   const [filterDay, setFilterDay] = useState<number | null>(null);
 
+  // Modales
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingPerson, setEditingPerson] = useState<Person | null>(null);
+  const [tempName, setTempName] = useState("");
+
   const results = useMemo(() => {
-    const res = computeResults(filterDay ?? undefined);
-    return {
-      ...res,
-      alternatives: res.alternatives.filter(alt => alt.count === (state?.people.length || 0))
-    };
+    return computeResults(filterDay ?? undefined);
   }, [state, filterDay, computeResults]);
 
   useEffect(() => {
-    if (state?.people.length && !selectedPersonId) {
+    if (state?.people.length && (!selectedPersonId || !state.people.some(p => p.id === selectedPersonId))) {
       setSelectedPersonId(state.people[0].id);
     }
   }, [state, selectedPersonId]);
@@ -88,11 +100,29 @@ export default function Home() {
     toast({ title: "Día Bloqueado", description: "Se ha marcado el día completo como ocupado." });
   };
 
-  const handleAddPerson = () => {
-    const name = window.prompt("Nombre del amigo:");
-    if (name && name.trim()) {
-      addPerson(name.trim());
-      toast({ title: "Amigo añadido", description: `${name} ha sido agregado a la lista.` });
+  const handleAddPersonSubmit = () => {
+    if (tempName.trim()) {
+      addPerson(tempName.trim());
+      setTempName("");
+      setIsAddModalOpen(false);
+      toast({ title: "Amigo añadido", description: "Se ha agregado a la lista correctamente." });
+    }
+  };
+
+  const handleEditPersonSubmit = () => {
+    if (editingPerson && tempName.trim()) {
+      updatePerson(editingPerson.id, tempName.trim());
+      setTempName("");
+      setEditingPerson(null);
+      setIsEditModalOpen(false);
+      toast({ title: "Nombre actualizado", description: "Se ha guardado el cambio correctamente." });
+    }
+  };
+
+  const handleReset = () => {
+    if (window.confirm("¿Estás seguro de que deseas limpiar todos los datos? Esto no se puede deshacer.")) {
+      resetAll();
+      toast({ title: "Datos limpiados", description: "La aplicación ha vuelto a su estado inicial." });
     }
   };
 
@@ -118,10 +148,10 @@ export default function Home() {
             </p>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" size="sm" onClick={handleAddPerson} className="rounded-full gap-2">
+            <Button variant="outline" size="sm" onClick={() => setIsAddModalOpen(true)} className="rounded-full gap-2">
               <UserPlus className="w-4 h-4" /> Añadir Amigo
             </Button>
-            <Button variant="ghost" size="sm" onClick={resetAll} className="rounded-full text-muted-foreground hover:text-destructive">
+            <Button variant="ghost" size="sm" onClick={handleReset} className="rounded-full text-muted-foreground hover:text-destructive">
               <RotateCcw className="w-4 h-4" /> Limpiar Datos
             </Button>
           </div>
@@ -199,21 +229,34 @@ export default function Home() {
                           <div className="w-2 h-8 rounded-full" style={{ backgroundColor: colorFromId(p.id) }} />
                           <span className="font-medium">{p.name} {idx === 0 && "(Yo)"}</span>
                         </div>
-                        {idx !== 0 && (
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <Button 
                             variant="ghost" 
                             size="icon" 
                             onClick={() => {
-                              if (window.confirm(`¿Eliminar a ${p.name}?`)) {
-                                removePerson(p.id);
-                                if (selectedPersonId === p.id) setSelectedPersonId(state.people[0].id);
-                              }
+                              setEditingPerson(p);
+                              setTempName(p.name);
+                              setIsEditModalOpen(true);
                             }} 
-                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                            className="h-8 w-8 text-muted-foreground hover:text-primary"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Edit2 className="w-3.5 h-3.5" />
                           </Button>
-                        )}
+                          {idx !== 0 && (
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => {
+                                if (window.confirm(`¿Eliminar a ${p.name}?`)) {
+                                  removePerson(p.id);
+                                }
+                              }} 
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -241,7 +284,7 @@ export default function Home() {
                             <div className="text-center pb-2 border-b border-border">
                               <span className="text-[10px] font-black uppercase text-muted-foreground">{name}</span>
                             </div>
-                            <div className="min-h-[250px] bg-muted/20 rounded-lg p-1 space-y-1">
+                            <div className="min-h-[300px] bg-muted/20 rounded-lg p-1 space-y-1">
                               {slots.map((s, idx) => (
                                 <div key={idx} className="relative group/block bg-destructive/10 text-destructive border border-destructive/20 rounded-md p-2 text-[10px] font-bold">
                                   {fromMin(s.fromMin)} - {fromMin(s.toMin)}
@@ -354,6 +397,68 @@ export default function Home() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Modal Añadir Amigo */}
+      <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Añadir Amigo</DialogTitle>
+            <DialogDescription>
+              Introduce el nombre de la persona que quieres incluir en la coordinación.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center space-x-2 py-4">
+            <div className="grid flex-1 gap-2">
+              <label htmlFor="name" className="sr-only">Nombre</label>
+              <Input
+                id="name"
+                placeholder="Nombre del amigo..."
+                value={tempName}
+                onChange={(e) => setTempName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddPersonSubmit()}
+              />
+            </div>
+          </div>
+          <DialogFooter className="sm:justify-end">
+            <Button type="button" variant="ghost" onClick={() => setIsAddModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={handleAddPersonSubmit}>
+              Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Editar Amigo */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Nombre</DialogTitle>
+            <DialogDescription>
+              Cambia el nombre de este participante.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center space-x-2 py-4">
+            <div className="grid flex-1 gap-2">
+              <Input
+                placeholder="Nombre del amigo..."
+                value={tempName}
+                onChange={(e) => setTempName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleEditPersonSubmit()}
+              />
+            </div>
+          </div>
+          <DialogFooter className="sm:justify-end">
+            <Button type="button" variant="ghost" onClick={() => setIsEditModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={handleEditPersonSubmit}>
+              Actualizar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

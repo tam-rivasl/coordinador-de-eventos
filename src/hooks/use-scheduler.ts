@@ -4,35 +4,36 @@ import { useState, useEffect, useCallback } from "react";
 import { SchedulerState, Person, Availability, SlotResult } from "@/types/scheduler";
 import { uid, mergeRanges, getFreeRanges } from "@/lib/scheduler-utils";
 
-const LS_KEY = "tiempojuntos_strict_v1";
+const LS_KEY = "tiempojuntos_strict_v2";
+
+const DEFAULT_STATE: SchedulerState = {
+  people: [
+    { id: uid(), name: "Yo" },
+    { id: uid(), name: "Amigo 1" },
+  ],
+  availability: {},
+};
 
 export function useScheduler() {
   const [state, setState] = useState<SchedulerState | null>(null);
-
-  const initializeDefault = useCallback(() => {
-    const defaultState: SchedulerState = {
-      people: [
-        { id: uid(), name: "Yo" },
-        { id: uid(), name: "Amigo 1" },
-      ],
-      availability: {},
-    };
-    setState(defaultState);
-    localStorage.setItem(LS_KEY, JSON.stringify(defaultState));
-  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem(LS_KEY);
     if (saved) {
       try {
-        setState(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        if (parsed && Array.isArray(parsed.people)) {
+          setState(parsed);
+        } else {
+          setState(DEFAULT_STATE);
+        }
       } catch (e) {
-        initializeDefault();
+        setState(DEFAULT_STATE);
       }
     } else {
-      initializeDefault();
+      setState(DEFAULT_STATE);
     }
-  }, [initializeDefault]);
+  }, []);
 
   const save = (newState: SchedulerState) => {
     setState(newState);
@@ -41,8 +42,15 @@ export function useScheduler() {
 
   const addPerson = (name: string) => {
     if (!state) return;
-    const newPerson: Person = { id: uid(), name };
-    save({ ...state, people: [...state.people, newPerson] });
+    const newPerson: Person = { id: uid(), name: name.trim() };
+    const newState = { ...state, people: [...state.people, newPerson] };
+    save(newState);
+  };
+
+  const updatePerson = (id: string, name: string) => {
+    if (!state) return;
+    const newPeople = state.people.map(p => p.id === id ? { ...p, name: name.trim() } : p);
+    save({ ...state, people: newPeople });
   };
 
   const removePerson = (id: string) => {
@@ -93,14 +101,15 @@ export function useScheduler() {
     });
   };
 
-  const computeResults = useCallback((selectedDay?: number): { best: SlotResult | null; alternatives: SlotResult[] } => {
-    if (!state || state.people.length === 0) return { best: null, alternatives: [] };
+  const computeResults = useCallback((selectedDay?: number): { alternatives: SlotResult[] } => {
+    if (!state || state.people.length === 0) return { alternatives: [] };
 
     const totalPeople = state.people.length;
     const allOptions: SlotResult[] = [];
 
     for (let day = 0; day < 7; day++) {
       const ranges = getFreeRanges(day, state.people, state.availability);
+      // Solo nos interesan los rangos donde TODOS pueden
       const perfectRanges = ranges.filter(r => r.count === totalPeople);
       allOptions.push(...perfectRanges);
     }
@@ -112,22 +121,27 @@ export function useScheduler() {
     const sorted = filtered.sort((a, b) => (b.end - b.start) - (a.end - a.start));
 
     return {
-      best: sorted[0] || null,
       alternatives: sorted
     };
   }, [state]);
 
   const resetAll = () => {
-    const confirmed = window.confirm("¿Estás seguro de que deseas limpiar todos los datos? Esto no se puede deshacer.");
-    if (confirmed) {
-      localStorage.removeItem(LS_KEY);
-      initializeDefault();
-    }
+    localStorage.removeItem(LS_KEY);
+    const freshState = {
+      people: [
+        { id: uid(), name: "Yo" },
+        { id: uid(), name: "Amigo 1" },
+      ],
+      availability: {},
+    };
+    setState(freshState);
+    localStorage.setItem(LS_KEY, JSON.stringify(freshState));
   };
 
   return {
     state,
     addPerson,
+    updatePerson,
     removePerson,
     addSlot,
     removeSlot,
