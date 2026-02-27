@@ -21,7 +21,8 @@ export type SlotResult = {
   end: number;
   count: number;
   can: Person[];
+  cannot: Person[];
 };
 
-export const DAYS_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-export const STEP = 30;
+export const DAYS_NAMES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+export const STEP = 15; // Mayor granularidad

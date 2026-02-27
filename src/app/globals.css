@@ -4,26 +4,26 @@
 
 @layer base {
   :root {
-    --background: 232 20% 6%;
-    --foreground: 228 100% 96%;
-    --card: 232 15% 10%;
-    --card-foreground: 228 100% 96%;
-    --popover: 232 15% 10%;
-    --popover-foreground: 228 100% 96%;
-    --primary: 247 72% 56%;
-    --primary-foreground: 228 100% 98%;
-    --secondary: 232 15% 14%;
-    --secondary-foreground: 228 100% 96%;
-    --muted: 232 15% 14%;
-    --muted-foreground: 228 20% 70%;
-    --accent: 199 89% 52%;
-    --accent-foreground: 228 100% 98%;
-    --destructive: 0 100% 71%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 232 15% 18%;
-    --input: 232 15% 18%;
-    --ring: 247 72% 56%;
-    --radius: 1rem;
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 263.4 70% 50.4%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 142.1 70.6% 45.3%;
+    --accent-foreground: 144.9 80.4% 10%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 263.4 70% 50.4%;
+    --radius: 0.75rem;
   }
 }
 
@@ -32,12 +32,24 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground font-body;
+    @apply bg-background text-foreground font-body antialiased;
     background-image: 
-      radial-gradient(900px 500px at 15% 20%, rgba(82, 64, 224, 0.15), transparent 60%),
-      radial-gradient(900px 500px at 85% 15%, rgba(25, 170, 240, 0.1), transparent 55%);
+      radial-gradient(circle at 2px 2px, rgba(255,255,255,0.05) 1px, transparent 0);
+    background-size: 24px 24px;
   }
   h1, h2, h3, h4, h5, h6 {
     @apply font-headline;
   }
+}
+
+.font-headline {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.font-body {
+  font-family: 'Inter', sans-serif;
+}
+
+.font-code {
+  font-family: 'Source Code Pro', monospace;
 }

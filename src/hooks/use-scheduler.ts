@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { SchedulerState, Person, Availability, TimeRange, SlotResult, STEP } from "@/types/scheduler";
 import { uid, mergeRanges, getFreeRanges, scoreAlt } from "@/lib/scheduler-utils";
 
-const LS_KEY = "tiempojuntos_v1";
+const LS_KEY = "tiempojuntos_expert_v2";
 
 export function useScheduler() {
   const [state, setState] = useState<SchedulerState | null>(null);
@@ -30,7 +30,7 @@ export function useScheduler() {
       ],
       availability: {},
     };
-    setState(defaultState);
+    save(defaultState);
   };
 
   const save = (newState: SchedulerState) => {
@@ -52,16 +52,10 @@ export function useScheduler() {
     save({ people: newPeople, availability: newAvailability });
   };
 
-  const renamePerson = (id: string, name: string) => {
-    if (!state) return;
-    const newPeople = state.people.map((p) => (p.id === id ? { ...p, name } : p));
-    save({ ...state, people: newPeople });
-  };
-
   const addSlot = (personId: string, day: number, fromMin: number, toMin: number) => {
     if (!state) return;
-    const currentAvailability = state.availability[personId] || {};
-    const dayRanges = currentAvailability[day] || [];
+    const currentPersonAvail = state.availability[personId] || {};
+    const dayRanges = currentPersonAvail[day] || [];
     const newDayRanges = mergeRanges([...dayRanges, { fromMin, toMin }]);
     
     save({
@@ -69,7 +63,7 @@ export function useScheduler() {
       availability: {
         ...state.availability,
         [personId]: {
-          ...currentAvailability,
+          ...currentPersonAvail,
           [day]: newDayRanges,
         },
       },
@@ -95,53 +89,46 @@ export function useScheduler() {
     });
   };
 
-  const computeResults = (selectedDay?: number): { best: SlotResult | null; alternatives: SlotResult[]; byDay: Record<number, SlotResult[]> } => {
-    if (!state || state.people.length === 0) return { best: null, alternatives: [], byDay: {} };
+  const computeResults = (selectedDay?: number): { best: SlotResult | null; alternatives: SlotResult[] } => {
+    if (!state || state.people.length === 0) return { best: null, alternatives: [] };
 
-    const allRanges: SlotResult[] = [];
-    const byDay: Record<number, SlotResult[]> = {};
+    const allOptions: SlotResult[] = [];
 
+    // Calcular huecos para cada día
     for (let day = 0; day < 7; day++) {
       const ranges = getFreeRanges(day, state.people, state.availability);
-      byDay[day] = ranges;
-      allRanges.push(...ranges);
+      allOptions.push(...ranges);
     }
 
-    if (allRanges.length === 0) return { best: null, alternatives: [], byDay: {} };
+    // Filtrar por día si se requiere
+    const filtered = selectedDay !== undefined 
+      ? allOptions.filter(o => o.day === selectedDay)
+      : allOptions;
 
-    // Sort by "quality" (max people, then earlier)
-    const sorted = allRanges.sort((a, b) => scoreAlt(b) - scoreAlt(a));
-    
-    // Filter by selected day if provided
-    const filteredSorted = selectedDay !== undefined 
-      ? sorted.filter(r => r.day === selectedDay)
-      : sorted;
+    // Ordenar por calidad experta
+    const totalPeople = state.people.length;
+    const sorted = filtered.sort((a, b) => scoreAlt(b, totalPeople) - scoreAlt(a, totalPeople));
 
     return {
-      best: filteredSorted[0] || null,
-      alternatives: filteredSorted.slice(1, 20),
-      byDay
+      best: sorted[0] || null,
+      alternatives: sorted.slice(0, 30) // Top 30 opciones
     };
   };
 
   const resetAll = () => {
-    localStorage.removeItem(LS_KEY);
-    initializeDefault();
-  };
-
-  const importData = (data: SchedulerState) => {
-    save(data);
+    if (confirm("¿Limpiar todos los datos?")) {
+      localStorage.removeItem(LS_KEY);
+      initializeDefault();
+    }
   };
 
   return {
     state,
     addPerson,
     removePerson,
-    renamePerson,
     addSlot,
     removeSlot,
     computeResults,
     resetAll,
-    importData,
   };
 }

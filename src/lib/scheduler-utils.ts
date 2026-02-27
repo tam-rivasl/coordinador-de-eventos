@@ -1,6 +1,9 @@
-import { TimeRange, STEP, Person, Availability, SlotResult } from "@/types/scheduler";
+import { TimeRange, Person, Availability, SlotResult } from "@/types/scheduler";
 
 export function uid(): string {
+  if (typeof window !== 'undefined' && window.crypto) {
+    return window.crypto.randomUUID();
+  }
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
 }
 
@@ -15,89 +18,100 @@ export function fromMin(min: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+/**
+ * Une intervalos que se solapan para un solo usuario.
+ */
 export function mergeRanges(ranges: TimeRange[]): TimeRange[] {
-  const arr = ranges
-    .filter((r) => r.toMin > r.fromMin)
-    .sort((a, b) => a.fromMin - b.fromMin);
-
+  if (!ranges.length) return [];
+  const sorted = [...ranges].sort((a, b) => a.fromMin - b.fromMin);
   const merged: TimeRange[] = [];
-  for (const r of arr) {
-    const last = merged[merged.length - 1];
-    if (!last || r.fromMin > last.toMin) {
-      merged.push({ ...r });
+  let current = { ...sorted[0] };
+
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].fromMin <= current.toMin) {
+      current.toMin = Math.max(current.toMin, sorted[i].toMin);
     } else {
-      last.toMin = Math.max(last.toMin, r.toMin);
+      merged.push(current);
+      current = { ...sorted[i] };
     }
   }
+  merged.push(current);
   return merged;
 }
 
 /**
- * Builds a set of minutes where the person is BUSY.
- */
-export function buildBusySet(personId: string, day: number, availability: Availability): Set<number> {
-  const ranges = availability[personId]?.[day] || [];
-  const s = new Set<number>();
-  for (const r of ranges) {
-    // We populate the set with the start of each STEP interval
-    for (let t = r.fromMin; t < r.toMin; t += STEP) {
-      s.add(t);
-    }
-  }
-  return s;
-}
-
-/**
- * Finds continuous free ranges for a specific day and group of people.
+ * Algoritmo experto para encontrar huecos libres comunes.
+ * Utiliza una técnica de "Timeline Events" para identificar cambios en la disponibilidad.
  */
 export function getFreeRanges(day: number, people: Person[], availability: Availability): SlotResult[] {
-  const START = 8 * 60; // 8:00 AM
-  const END = 24 * 60;  // Midnight
+  const DAY_START = 0;
+  const DAY_END = 1440; // 24 * 60
+
+  if (people.length === 0) return [];
+
+  // Crear eventos de inicio y fin de BLOQUEO
+  const events: { min: number; type: 'start' | 'end'; personId: string }[] = [];
   
+  people.forEach(p => {
+    const blocks = availability[p.id]?.[day] || [];
+    blocks.forEach(b => {
+      events.push({ min: b.fromMin, type: 'start', personId: p.id });
+      events.push({ min: b.toMin, type: 'end', personId: p.id });
+    });
+  });
+
+  // Ordenar eventos por tiempo
+  events.sort((a, b) => a.min - b.min || (a.type === 'end' ? -1 : 1));
+
   const results: SlotResult[] = [];
-  let currentGroup: Person[] = [];
-  let currentStart = START;
+  const currentBlocked = new Set<string>();
+  let lastTime = DAY_START;
 
-  const busySets = people.map(p => ({
-    p,
-    set: buildBusySet(p.id, day, availability)
-  }));
+  const pushResult = (start: number, end: number) => {
+    if (end <= start) return;
+    const can = people.filter(p => !currentBlocked.has(p.id));
+    const cannot = people.filter(p => currentBlocked.has(p.id));
+    results.push({
+      day,
+      start,
+      end,
+      count: can.length,
+      can,
+      cannot
+    });
+  };
 
-  for (let t = START; t <= END; t += STEP) {
-    const freeAtT = busySets.filter(x => !x.set.has(t)).map(x => x.p);
-    
-    const currentIds = currentGroup.map(p => p.id).sort().join(',');
-    const newIds = freeAtT.map(p => p.id).sort().join(',');
-
-    if (t === START) {
-      currentGroup = freeAtT;
-    } else if (newIds !== currentIds || t === END) {
-      if (currentGroup.length > 0) {
-        results.push({
-          day,
-          start: currentStart,
-          end: t,
-          count: currentGroup.length,
-          can: currentGroup
-        });
-      }
-      currentGroup = freeAtT;
-      currentStart = t;
+  // Procesar eventos
+  events.forEach(event => {
+    if (event.min > lastTime) {
+      pushResult(lastTime, event.min);
     }
+    
+    if (event.type === 'start') {
+      currentBlocked.add(event.personId);
+    } else {
+      currentBlocked.delete(event.personId);
+    }
+    lastTime = event.min;
+  });
+
+  if (lastTime < DAY_END) {
+    pushResult(lastTime, DAY_END);
   }
-  return results;
+
+  // Filtrar huecos irrelevantes (ej: menos de 30 min o muy temprano/tarde si se desea)
+  return results.filter(r => (r.end - r.start) >= 30);
 }
 
-export function scoreAlt(alt: SlotResult): number {
-  // Prioritize ranges with 100% attendance first
-  return alt.count * 1000000 - alt.day * 1000 - alt.start;
+export function scoreAlt(alt: SlotResult, totalPeople: number): number {
+  const attendanceWeight = (alt.count / totalPeople) * 10000;
+  const durationWeight = (alt.end - alt.start) / 10;
+  const dayWeight = (7 - alt.day) * 5; // Preferencia por inicios de semana o fines segun logica
+  return attendanceWeight + durationWeight + dayWeight;
 }
 
 export function colorFromId(id: string, alpha = 1): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  const r = 100 + (h % 155);
-  const g = 100 + ((h >> 8) % 155);
-  const b = 150 + ((h >> 16) % 105);
-  return alpha === 1 ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${alpha})`;
+  return `hsla(${h % 360}, 70%, 60%, ${alpha})`;
 }

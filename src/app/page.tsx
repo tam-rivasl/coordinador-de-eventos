@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useScheduler } from "@/hooks/use-scheduler";
-import { DAYS_NAMES, type SchedulerState, STEP } from "@/types/scheduler";
-import { colorFromId, toMin, fromMin } from "@/lib/scheduler-utils";
+import { DAYS_NAMES, type SchedulerState, type SlotResult } from "@/types/scheduler";
+import { colorFromId, fromMin, toMin } from "@/lib/scheduler-utils";
+import { recommendMeeting } from "@/ai/flows/recommend-meeting-flow";
 import { 
   Card, 
   CardHeader, 
@@ -21,20 +22,20 @@ import {
   SelectValue 
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Plus, 
   Trash2, 
-  Calculator, 
-  Download, 
-  Upload, 
+  Sparkles, 
   RotateCcw, 
   Clock, 
   X,
-  Edit2,
-  AlertTriangle,
-  CalendarDays,
+  UserPlus,
+  Calendar,
   CheckCircle2,
-  Filter
+  AlertCircle,
+  ChevronRight,
+  Info
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -45,406 +46,331 @@ export default function Home() {
     state, 
     addPerson, 
     removePerson, 
-    renamePerson, 
     addSlot, 
     removeSlot, 
     computeResults, 
-    resetAll, 
-    importData 
+    resetAll 
   } = useScheduler();
 
   const [selectedPersonId, setSelectedPersonId] = useState<string>("");
   const [selectedDay, setSelectedDay] = useState<string>("0");
-  const [fromTime, setFromTime] = useState<string>("18:00");
-  const [toTime, setToTime] = useState<string>("21:00");
-  const [computed, setComputed] = useState(false);
+  const [fromTime, setFromTime] = useState<string>("09:00");
+  const [toTime, setToTime] = useState<string>("11:00");
+  const [activeTab, setActiveTab] = useState<string>("input");
+  const [aiRecommendation, setAiRecommendation] = useState<{ text: string, idx: number } | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
   const [filterDay, setFilterDay] = useState<number | null>(null);
 
-  // Results are memoized based on state and filter
   const results = useMemo(() => computeResults(filterDay ?? undefined), [state, filterDay]);
 
-  if (!state) return null;
-
-  // Auto select first person if none selected
-  if (!selectedPersonId && state.people.length > 0) {
-    setSelectedPersonId(state.people[0].id);
-  }
+  useEffect(() => {
+    if (state?.people.length && !selectedPersonId) {
+      setSelectedPersonId(state.people[0].id);
+    }
+  }, [state, selectedPersonId]);
 
   const handleAddSlot = () => {
     const from = toMin(fromTime);
     const to = toMin(toTime);
     if (to <= from) {
-      toast({
-        title: "Error",
-        description: "La hora 'Hasta' debe ser mayor que 'Desde'.",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "El fin debe ser después del inicio.", variant: "destructive" });
       return;
     }
     addSlot(selectedPersonId, parseInt(selectedDay), from, to);
-    setComputed(false);
+    setAiRecommendation(null);
   };
 
-  const handleExport = () => {
-    const dataStr = JSON.stringify(state, null, 2);
-    navigator.clipboard.writeText(dataStr);
-    toast({
-      title: "Exportado",
-      description: "Datos JSON copiados al portapapeles.",
-    });
-  };
-
-  const handleImport = () => {
-    const raw = prompt("Pega el JSON de respaldo:");
-    if (!raw) return;
+  const getAiHelp = async () => {
+    if (!results.alternatives.length) return;
+    setIsAiLoading(true);
     try {
-      const parsed = JSON.parse(raw) as SchedulerState;
-      if (!parsed.people || !parsed.availability) throw new Error();
-      importData(parsed);
-      setComputed(false);
-      toast({ title: "Importado", description: "Datos cargados correctamente." });
+      const res = await recommendMeeting({ 
+        slots: results.alternatives.slice(0, 10), 
+        peopleCount: state?.people.length || 0 
+      });
+      setAiRecommendation({ text: res.recommendation, idx: res.bestSlotIdx });
     } catch (e) {
-      toast({ title: "Error", description: "El JSON proporcionado no es válido.", variant: "destructive" });
+      toast({ title: "Error de IA", description: "No pude procesar la recomendación ahora.", variant: "destructive" });
+    } finally {
+      setIsAiLoading(false);
     }
   };
 
+  if (!state) return null;
+
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 md:py-12 space-y-8">
-      {/* Header Section */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div className="space-y-2">
-          <h1 className="text-4xl md:text-5xl font-headline tracking-tight">TiempoJuntos</h1>
-          <p className="text-muted-foreground max-w-2xl leading-relaxed">
-            Marca tus <strong className="text-destructive">bloqueos</strong> (trabajo, clase, gym). 
-            Encontraremos los huecos donde todos están libres.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="outline" className="font-code py-1.5 px-3 border-accent/20 bg-accent/5">
-            ⏱️ Rangos Precisos
-          </Badge>
-          <Badge variant="outline" className="font-code py-1.5 px-3 border-accent/20 bg-accent/5">
-            🗓️ Vista Semanal
-          </Badge>
-        </div>
-      </header>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+    <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
+      <div className="max-w-6xl mx-auto px-4 py-12 space-y-12">
         
-        {/* Left Column: Input Panel */}
-        <div className="lg:col-span-7 space-y-8">
-          <Card className="border-border/40 shadow-2xl overflow-hidden relative group">
-            <CardHeader className="border-b border-border/40 bg-card/50">
-              <div className="flex justify-between items-center">
-                <CardTitle className="text-xl flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-destructive" />
-                  Registrar Bloqueos
-                </CardTitle>
-                <div className="flex gap-2">
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => {
-                      const name = prompt("Nombre del nuevo amigo:");
-                      if (name) addPerson(name);
-                    }}
-                    className="h-8 gap-1.5"
-                  >
-                    <Plus className="w-4 h-4" /> Amigo
-                  </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => {
-                      if (confirm("¿Seguro que quieres borrar todo?")) resetAll();
-                    }}
-                    className="h-8 text-destructive hover:bg-destructive/10 gap-1.5"
-                  >
-                    <RotateCcw className="w-4 h-4" /> Reset
-                  </Button>
-                </div>
-              </div>
-              <CardDescription>
-                Indica cuándo NO puedes estar disponible para la junta.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-6 space-y-6">
-              {/* Add Slot Form */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
-                <div className="space-y-2 lg:col-span-1">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">¿Quién?</label>
-                  <Select value={selectedPersonId} onValueChange={setSelectedPersonId}>
-                    <SelectTrigger className="bg-background/40">
-                      <SelectValue placeholder="Seleccionar" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {state.people.map(p => (
-                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2 lg:col-span-1">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Día</label>
-                  <Select value={selectedDay} onValueChange={setSelectedDay}>
-                    <SelectTrigger className="bg-background/40">
-                      <SelectValue placeholder="Día" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DAYS_NAMES.map((d, i) => (
-                        <SelectItem key={i} value={i.toString()}>{d}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2 lg:col-span-1">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Desde</label>
-                  <Input 
-                    type="time" 
-                    value={fromTime} 
-                    onChange={e => setFromTime(e.target.value)}
-                    className="bg-background/40 font-code" 
-                  />
-                </div>
-                <div className="space-y-2 lg:col-span-1">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Hasta</label>
-                  <Input 
-                    type="time" 
-                    value={toTime} 
-                    onChange={e => setToTime(e.target.value)}
-                    className="bg-background/40 font-code" 
-                  />
-                </div>
-                <div className="lg:col-span-1">
-                  <Button onClick={handleAddSlot} variant="destructive" className="w-full shadow-lg shadow-destructive/20">
-                    Bloquear
-                  </Button>
+        {/* Header Hero */}
+        <header className="flex flex-col md:flex-row justify-between items-end gap-6 border-b border-border pb-8">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold uppercase tracking-wider">
+              <Sparkles className="w-3 h-3" /> Agenda Inteligente
+            </div>
+            <h1 className="text-5xl font-headline font-bold tracking-tight">TiempoJuntos</h1>
+            <p className="text-muted-foreground text-lg max-w-xl">
+              Coordinar amigos no debería ser un trabajo. Registra tus <span className="text-destructive font-semibold">bloqueos</span> y deja que la IA encuentre el hueco perfecto.
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" size="sm" onClick={() => {
+              const name = prompt("Nombre del amigo:");
+              if (name) addPerson(name);
+            }} className="rounded-full gap-2">
+              <UserPlus className="w-4 h-4" /> Añadir Amigo
+            </Button>
+            <Button variant="ghost" size="sm" onClick={resetAll} className="rounded-full text-muted-foreground hover:text-destructive">
+              <RotateCcw className="w-4 h-4" />
+            </Button>
+          </div>
+        </header>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
+          <TabsList className="grid w-full grid-cols-2 max-w-md mx-auto h-12 p-1 bg-muted/50 rounded-xl">
+            <TabsTrigger value="input" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
+              1. Registrar Bloqueos
+            </TabsTrigger>
+            <TabsTrigger value="results" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
+              2. Ver Disponibilidad
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="input" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Form Side */}
+              <div className="lg:col-span-4 space-y-6">
+                <Card className="border-border shadow-xl overflow-hidden">
+                  <CardHeader className="bg-muted/30">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-primary" /> Nuevo Bloqueo
+                    </CardTitle>
+                    <CardDescription>Indica cuándo NO estás disponible.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-6 space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase text-muted-foreground">¿Quién?</label>
+                      <Select value={selectedPersonId} onValueChange={setSelectedPersonId}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {state.people.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase text-muted-foreground">Día</label>
+                      <Select value={selectedDay} onValueChange={setSelectedDay}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {DAYS_NAMES.map((d, i) => <SelectItem key={i} value={i.toString()}>{d}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold uppercase text-muted-foreground">Desde</label>
+                        <Input type="time" value={fromTime} onChange={e => setFromTime(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold uppercase text-muted-foreground">Hasta</label>
+                        <Input type="time" value={toTime} onChange={e => setToTime(e.target.value)} />
+                      </div>
+                    </div>
+                    <Button onClick={handleAddSlot} className="w-full h-12 text-md font-semibold" variant="destructive">
+                      Bloquear Horario
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold uppercase text-muted-foreground flex items-center gap-2">
+                    <Info className="w-4 h-4" /> Amigos en la Junta
+                  </h3>
+                  <div className="space-y-2">
+                    {state.people.map(p => (
+                      <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-card border border-border group">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2 h-8 rounded-full" style={{ backgroundColor: colorFromId(p.id) }} />
+                          <span className="font-medium">{p.name}</span>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => removePerson(p.id)} className="opacity-0 group-hover:opacity-100 text-destructive">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              {/* Weekly View for Selected Person */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
-                {DAYS_NAMES.map((name, i) => {
-                  const slots = state.availability[selectedPersonId]?.[i] || [];
-                  return (
-                    <div key={i} className="flex flex-col gap-2 p-3 rounded-xl border border-border/40 bg-background/20 min-h-[100px]">
-                      <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{name}</span>
-                      <div className="flex flex-col gap-1.5">
-                        {slots.length === 0 ? (
-                          <span className="text-[10px] text-muted-foreground/40 italic">Libre</span>
-                        ) : (
-                          slots.sort((a,b) => a.fromMin - b.fromMin).map((s, idx) => (
-                            <div key={idx} className="group/slot flex items-center justify-between gap-1 bg-destructive/10 text-destructive-foreground p-1.5 rounded-lg border border-destructive/20 text-[10px] font-code">
-                              <span className="truncate">{fromMin(s.fromMin)}-{fromMin(s.toMin)}</span>
-                              <button 
-                                onClick={() => removeSlot(selectedPersonId, i, idx)}
-                                className="opacity-0 group-hover/slot:opacity-100 hover:text-destructive-foreground/70 transition-opacity"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
+              {/* Visualization Side */}
+              <div className="lg:col-span-8 space-y-6">
+                <Card className="border-border shadow-xl h-full">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                    <div>
+                      <CardTitle className="text-lg">Resumen de Bloqueos</CardTitle>
+                      <CardDescription>Vista semanal del amigo seleccionado.</CardDescription>
+                    </div>
+                    <Badge variant="outline" className="font-code">
+                      {state.people.find(p => p.id === selectedPersonId)?.name}
+                    </Badge>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-7 gap-2">
+                      {DAYS_NAMES.map((name, i) => {
+                        const slots = state.availability[selectedPersonId]?.[i] || [];
+                        return (
+                          <div key={i} className="space-y-2">
+                            <div className="text-center pb-2 border-b border-border">
+                              <span className="text-[10px] font-black uppercase text-muted-foreground">{name}</span>
                             </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* People Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {state.people.map(p => {
-              const totalDays = Object.keys(state.availability[p.id] || {}).length;
-              return (
-                <Card key={p.id} className="border-border/40 bg-card/30 hover:bg-card/50 transition-colors">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: colorFromId(p.id, 0.2), color: colorFromId(p.id) }}>
-                        {p.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-sm flex items-center gap-2">
-                          {p.name}
-                        </h4>
-                        <p className="text-xs text-muted-foreground">
-                          {totalDays} días bloqueados
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex gap-1 opacity-40 hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-                        const newName = prompt("Nuevo nombre para " + p.name + ":", p.name);
-                        if (newName) renamePerson(p.id, newName);
-                      }}>
-                        <Edit2 className="w-3 h-3" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removePerson(p.id)}>
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
+                            <div className="min-h-[200px] bg-muted/20 rounded-lg p-1 space-y-1">
+                              {slots.map((s, idx) => (
+                                <div key={idx} className="relative group/block bg-destructive/10 text-destructive border border-destructive/20 rounded-md p-2 text-[10px] font-bold">
+                                  {fromMin(s.fromMin)} - {fromMin(s.toMin)}
+                                  <button onClick={() => removeSlot(selectedPersonId, i, idx)} className="absolute -top-1 -right-1 bg-destructive text-white rounded-full p-0.5 opacity-0 group-hover/block:opacity-100">
+                                    <X className="w-2 h-2" />
+                                  </button>
+                                </div>
+                              ))}
+                              {slots.length === 0 && (
+                                <div className="h-full flex items-center justify-center opacity-20 italic text-[10px]">Sin bloqueos</div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </CardContent>
                 </Card>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Right Column: Results Panel */}
-        <div className="lg:col-span-5 space-y-8">
-          <Card className="border-border/40 shadow-2xl relative overflow-hidden">
-            <CardHeader className="border-b border-border/40 bg-card/50">
-              <div className="flex justify-between items-center">
-                <CardTitle className="text-xl flex items-center gap-2">
-                  <Calculator className="w-5 h-5 text-accent" />
-                  Huecos Libres
-                </CardTitle>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={handleExport} className="h-8 bg-background/40">
-                    <Download className="w-4 h-4" />
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleImport} className="h-8 bg-background/40">
-                    <Upload className="w-4 h-4" />
-                  </Button>
-                </div>
               </div>
-            </CardHeader>
-            <CardContent className="pt-6 space-y-6">
-              {!computed ? (
-                <div className="py-12 flex flex-col items-center justify-center text-center space-y-4">
-                  <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center text-accent">
-                    <Clock className="w-8 h-8" />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className="font-headline text-lg">¿Cuándo nos juntamos?</h3>
-                    <p className="text-sm text-muted-foreground max-w-xs">
-                      Buscaremos los rangos donde la mayoría está libre de bloqueos.
-                    </p>
-                  </div>
-                  <Button onClick={() => setComputed(true)} className="bg-accent hover:bg-accent/90">
-                    Calcular mejores momentos
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  
-                  {/* Phase selection: Select a day to focus */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                        <Filter className="w-3 h-3" /> Filtrar por día
-                      </h3>
-                      {filterDay !== null && (
-                        <Button variant="link" size="sm" onClick={() => setFilterDay(null)} className="h-auto p-0 text-accent text-xs">
-                          Ver todos
-                        </Button>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {DAYS_NAMES.map((d, i) => (
-                        <Button 
-                          key={i} 
-                          variant={filterDay === i ? "default" : "outline"} 
-                          size="sm"
-                          onClick={() => setFilterDay(filterDay === i ? null : i)}
-                          className={cn(
-                            "h-8 text-xs",
-                            filterDay === i ? "bg-accent hover:bg-accent/90" : "bg-background/40"
-                          )}
-                        >
-                          {d}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
+            </div>
+          </TabsContent>
 
-                  {/* Best Match Highlight */}
-                  {results.best && (
-                    <div className="bg-accent/10 border border-accent/20 rounded-2xl p-6 relative">
-                      <div className="absolute top-4 right-4 text-xs font-code text-accent font-bold px-2 py-1 rounded bg-accent/20">
-                        {results.best.count === state.people.length ? "¡Ideal!" : "Mejor opción"}
+          <TabsContent value="results" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              
+              {/* Filter and Quick Stats */}
+              <div className="lg:col-span-3 space-y-6">
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold uppercase text-muted-foreground tracking-widest">Filtrar Día</h3>
+                  <div className="flex flex-col gap-2">
+                    <Button variant={filterDay === null ? "default" : "outline"} onClick={() => setFilterDay(null)} className="justify-start">Todos los días</Button>
+                    {DAYS_NAMES.map((d, i) => (
+                      <Button 
+                        key={i} 
+                        variant={filterDay === i ? "default" : "outline"} 
+                        onClick={() => setFilterDay(i)}
+                        className="justify-start gap-2"
+                      >
+                        <Calendar className="w-4 h-4" /> {d}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <Card className="bg-primary/5 border-primary/20">
+                  <CardContent className="pt-6 space-y-4">
+                    <div className="flex items-center gap-2 text-primary">
+                      <Sparkles className="w-5 h-5" />
+                      <h4 className="font-bold">Análisis Experto</h4>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Utilizamos un algoritmo de barrido de tiempo para encontrar huecos donde la asistencia es máxima.
+                    </p>
+                    <Button onClick={getAiHelp} disabled={isAiLoading || !results.alternatives.length} className="w-full bg-primary hover:bg-primary/90">
+                      {isAiLoading ? "Analizando..." : "Recomendación IA"}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Main Results View */}
+              <div className="lg:col-span-9 space-y-6">
+                {aiRecommendation && (
+                  <Card className="border-accent bg-accent/5 overflow-hidden animate-in zoom-in-95 duration-300">
+                    <div className="p-1 bg-accent flex items-center justify-center text-[10px] font-black text-white uppercase tracking-[0.2em]">Sugerencia de la IA</div>
+                    <CardContent className="p-6 flex gap-6 items-start">
+                      <div className="w-12 h-12 rounded-2xl bg-accent flex items-center justify-center text-white shrink-0">
+                        <Sparkles className="w-6 h-6" />
                       </div>
-                      <div className="space-y-4">
-                        <div className="space-y-1">
-                          <h3 className="text-sm font-semibold text-accent uppercase tracking-widest">Sugerencia Principal</h3>
-                          <div className="text-3xl font-headline flex items-baseline gap-2">
-                            <span>{DAYS_NAMES[results.best.day]}</span>
-                            <span className="text-muted-foreground text-xl">{fromMin(results.best.start)} - {fromMin(results.best.end)}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <Badge variant="outline" className="border-accent/40 bg-accent/10 text-accent font-bold">
-                            {results.best.count} / {state.people.length} Libres
-                          </Badge>
-                          <span>{((results.best.count / state.people.length) * 100).toFixed(0)}% asistencia</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2 pt-2">
-                          {results.best.can.map(p => (
-                            <div key={p.id} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-background/60 border border-border/40 text-xs font-medium">
-                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: colorFromId(p.id) }} />
-                              {p.name}
+                      <div className="space-y-2">
+                        <p className="text-lg font-medium leading-snug">{aiRecommendation.text}</p>
+                        <Badge variant="secondary" className="bg-accent/20 text-accent border-accent/20">
+                          Opción #{aiRecommendation.idx + 1} del listado
+                        </Badge>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {results.alternatives.length > 0 ? (
+                    results.alternatives.map((alt, i) => (
+                      <Card key={i} className={cn(
+                        "group hover:border-primary/50 transition-all duration-300 cursor-default overflow-hidden",
+                        alt.count === state.people.length ? "border-primary/40 bg-primary/5" : "border-border"
+                      )}>
+                        <CardContent className="p-0">
+                          <div className="flex items-stretch h-full">
+                            <div className={cn(
+                              "w-12 flex flex-col items-center justify-center font-black text-[10px] uppercase [writing-mode:vertical-lr] rotate-180",
+                              alt.count === state.people.length ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                            )}>
+                              {DAYS_NAMES[alt.day]}
                             </div>
-                          ))}
-                        </div>
+                            <div className="flex-1 p-5 space-y-4">
+                              <div className="flex justify-between items-start">
+                                <div className="space-y-1">
+                                  <div className="text-2xl font-headline font-bold flex items-center gap-2">
+                                    {fromMin(alt.start)} - {fromMin(alt.end)}
+                                    {alt.count === state.people.length && <CheckCircle2 className="w-5 h-5 text-primary" />}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    Duración: {((alt.end - alt.start) / 60).toFixed(1)} horas
+                                  </p>
+                                </div>
+                                <Badge variant={alt.count === state.people.length ? "default" : "secondary"}>
+                                  {alt.count} / {state.people.length} libres
+                                </Badge>
+                              </div>
+
+                              <div className="space-y-3">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {alt.can.map(p => (
+                                    <div key={p.id} className="w-2 h-2 rounded-full" title={p.name} style={{ backgroundColor: colorFromId(p.id) }} />
+                                  ))}
+                                </div>
+                                {alt.cannot.length > 0 && (
+                                  <div className="flex items-center gap-2 text-[10px] text-destructive font-medium uppercase tracking-wider">
+                                    <AlertCircle className="w-3 h-3" />
+                                    No pueden: {alt.cannot.map(p => p.name).join(", ")}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="w-10 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                              <ChevronRight className="w-5 h-5 opacity-20 group-hover:opacity-100 transition-all group-hover:translate-x-1" />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                  ) : (
+                    <div className="col-span-full py-20 text-center space-y-4 border-2 border-dashed border-border rounded-3xl">
+                      <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto text-muted-foreground">
+                        <AlertCircle className="w-8 h-8" />
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="text-xl font-bold">Sin huecos comunes</h3>
+                        <p className="text-muted-foreground max-w-xs mx-auto text-sm">Prueba a eliminar algunos bloqueos o revisa si alguien tiene todo el día ocupado.</p>
                       </div>
                     </div>
                   )}
-
-                  {/* Alternatives grouped by day */}
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">Otras opciones encontradas</h3>
-                    <div className="space-y-3">
-                      {results.alternatives.length > 0 ? (
-                        results.alternatives.map((alt, i) => (
-                          <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-border/40 bg-card/20 hover:bg-card/40 transition-colors group">
-                            <div className="flex items-center gap-4">
-                              <div className="text-center w-14 border-r border-border/40 pr-4">
-                                <span className="block text-xs font-bold uppercase">{DAYS_NAMES[alt.day]}</span>
-                                <span className="block text-[10px] text-muted-foreground font-code mt-0.5">{fromMin(alt.start)}</span>
-                              </div>
-                              <div className="space-y-0.5">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-medium">{fromMin(alt.start)} - {fromMin(alt.end)}</span>
-                                  {alt.count === state.people.length && (
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-accent" />
-                                  )}
-                                </div>
-                                <p className="text-[10px] text-muted-foreground line-clamp-1">
-                                  {alt.can.map(p => p.name).join(", ")}
-                                </p>
-                              </div>
-                            </div>
-                            <Badge variant="secondary" className={cn(
-                              "group-hover:bg-accent group-hover:text-accent-foreground transition-colors",
-                              alt.count === state.people.length && "bg-accent/20 text-accent border-accent/20"
-                            )}>
-                              {alt.count}/{state.people.length}
-                            </Badge>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="py-8 text-center">
-                          <p className="text-xs text-muted-foreground italic">No se encontraron más opciones para los filtros seleccionados.</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-border/40">
-                    <Button 
-                      variant="outline" 
-                      className="w-full gap-2 border-accent/20 text-accent hover:bg-accent/5"
-                      onClick={() => setComputed(false)}
-                    >
-                      <RotateCcw className="w-4 h-4" /> Re-ajustar bloqueos
-                    </Button>
-                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
