@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { SchedulerState, Person, Availability, TimeRange, SlotResult, STEP } from "@/types/scheduler";
+import { SchedulerState, Person, Availability, TimeRange, SlotResult } from "@/types/scheduler";
 import { uid, mergeRanges, getFreeRanges, scoreAlt } from "@/lib/scheduler-utils";
 
-const LS_KEY = "tiempojuntos_expert_v2";
+const LS_KEY = "tiempojuntos_expert_v3";
 
 export function useScheduler() {
   const [state, setState] = useState<SchedulerState | null>(null);
@@ -93,25 +93,30 @@ export function useScheduler() {
     if (!state || state.people.length === 0) return { best: null, alternatives: [] };
 
     const allOptions: SlotResult[] = [];
+    const mainPersonId = state.people[0]?.id;
 
-    // Calcular huecos para cada día
     for (let day = 0; day < 7; day++) {
       const ranges = getFreeRanges(day, state.people, state.availability);
       allOptions.push(...ranges);
     }
 
-    // Filtrar por día si se requiere
     const filtered = selectedDay !== undefined 
       ? allOptions.filter(o => o.day === selectedDay)
       : allOptions;
 
-    // Ordenar por calidad experta
     const totalPeople = state.people.length;
-    const sorted = filtered.sort((a, b) => scoreAlt(b, totalPeople) - scoreAlt(a, totalPeople));
+    
+    // El ordenamiento ahora es mucho más estricto
+    const sorted = filtered.sort((a, b) => 
+      scoreAlt(b, totalPeople, mainPersonId) - scoreAlt(a, totalPeople, mainPersonId)
+    );
+
+    // Filtrar opciones que son realmente malas (ej: donde falta el organizador y hay mejores opciones)
+    const validResults = sorted.filter(s => scoreAlt(s, totalPeople, mainPersonId) > -5000);
 
     return {
-      best: sorted[0] || null,
-      alternatives: sorted.slice(0, 30) // Top 30 opciones
+      best: validResults[0] || null,
+      alternatives: validResults.slice(0, 30)
     };
   };
 

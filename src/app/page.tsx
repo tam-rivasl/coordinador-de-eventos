@@ -35,7 +35,8 @@ import {
   CheckCircle2,
   AlertCircle,
   ChevronRight,
-  Info
+  Info,
+  Ban
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -78,6 +79,11 @@ export default function Home() {
     }
     addSlot(selectedPersonId, parseInt(selectedDay), from, to);
     setAiRecommendation(null);
+  };
+
+  const handleBlockFullDay = () => {
+    addSlot(selectedPersonId, parseInt(selectedDay), 0, 1439);
+    toast({ title: "Día Bloqueado", description: "Se ha marcado el día completo como ocupado." });
   };
 
   const getAiHelp = async () => {
@@ -176,9 +182,14 @@ export default function Home() {
                         <Input type="time" value={toTime} onChange={e => setToTime(e.target.value)} />
                       </div>
                     </div>
-                    <Button onClick={handleAddSlot} className="w-full h-12 text-md font-semibold" variant="destructive">
-                      Bloquear Horario
-                    </Button>
+                    <div className="grid grid-cols-1 gap-2 pt-2">
+                      <Button onClick={handleAddSlot} className="w-full h-12 text-md font-semibold" variant="destructive">
+                        Bloquear Horario
+                      </Button>
+                      <Button onClick={handleBlockFullDay} variant="outline" className="w-full gap-2 text-xs h-8">
+                        <Ban className="w-3 h-3" /> Bloquear Día Completo
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -191,11 +202,13 @@ export default function Home() {
                       <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-card border border-border group">
                         <div className="flex items-center gap-3">
                           <div className="w-2 h-8 rounded-full" style={{ backgroundColor: colorFromId(p.id) }} />
-                          <span className="font-medium">{p.name}</span>
+                          <span className="font-medium">{p.name} {state.people[0].id === p.id && "(Yo)"}</span>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => removePerson(p.id)} className="opacity-0 group-hover:opacity-100 text-destructive">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        {state.people[0].id !== p.id && (
+                          <Button variant="ghost" size="icon" onClick={() => removePerson(p.id)} className="opacity-0 group-hover:opacity-100 text-destructive">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -233,7 +246,7 @@ export default function Home() {
                                 </div>
                               ))}
                               {slots.length === 0 && (
-                                <div className="h-full flex items-center justify-center opacity-20 italic text-[10px]">Sin bloqueos</div>
+                                <div className="h-full flex items-center justify-center opacity-20 italic text-[10px]">Libre</div>
                               )}
                             </div>
                           </div>
@@ -275,7 +288,7 @@ export default function Home() {
                       <h4 className="font-bold">Análisis Experto</h4>
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Utilizamos un algoritmo de barrido de tiempo para encontrar huecos donde la asistencia es máxima.
+                      Priorizamos horarios donde <strong>todos</strong> pueden. Si bloqueaste un día entero, ese día bajará al final de la lista.
                     </p>
                     <Button onClick={getAiHelp} disabled={isAiLoading || !results.alternatives.length} className="w-full bg-primary hover:bg-primary/90">
                       {isAiLoading ? "Analizando..." : "Recomendación IA"}
@@ -305,56 +318,62 @@ export default function Home() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {results.alternatives.length > 0 ? (
-                    results.alternatives.map((alt, i) => (
-                      <Card key={i} className={cn(
-                        "group hover:border-primary/50 transition-all duration-300 cursor-default overflow-hidden",
-                        alt.count === state.people.length ? "border-primary/40 bg-primary/5" : "border-border"
-                      )}>
-                        <CardContent className="p-0">
-                          <div className="flex items-stretch h-full">
-                            <div className={cn(
-                              "w-12 flex flex-col items-center justify-center font-black text-[10px] uppercase [writing-mode:vertical-lr] rotate-180",
-                              alt.count === state.people.length ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                            )}>
-                              {DAYS_NAMES[alt.day]}
-                            </div>
-                            <div className="flex-1 p-5 space-y-4">
-                              <div className="flex justify-between items-start">
-                                <div className="space-y-1">
-                                  <div className="text-2xl font-headline font-bold flex items-center gap-2">
-                                    {fromMin(alt.start)} - {fromMin(alt.end)}
-                                    {alt.count === state.people.length && <CheckCircle2 className="w-5 h-5 text-primary" />}
-                                  </div>
-                                  <p className="text-xs text-muted-foreground">
-                                    Duración: {((alt.end - alt.start) / 60).toFixed(1)} horas
-                                  </p>
-                                </div>
-                                <Badge variant={alt.count === state.people.length ? "default" : "secondary"}>
-                                  {alt.count} / {state.people.length} libres
-                                </Badge>
+                    results.alternatives.map((alt, i) => {
+                      const isPerfect = alt.count === state.people.length;
+                      const isMainMissing = alt.cannot.some(p => p.id === state.people[0].id);
+                      
+                      return (
+                        <Card key={i} className={cn(
+                          "group hover:border-primary/50 transition-all duration-300 cursor-default overflow-hidden",
+                          isPerfect ? "border-primary/40 bg-primary/5 shadow-md shadow-primary/5" : "border-border opacity-80",
+                          isMainMissing && "opacity-40 border-dashed"
+                        )}>
+                          <CardContent className="p-0">
+                            <div className="flex items-stretch h-full">
+                              <div className={cn(
+                                "w-12 flex flex-col items-center justify-center font-black text-[10px] uppercase [writing-mode:vertical-lr] rotate-180",
+                                isPerfect ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                              )}>
+                                {DAYS_NAMES[alt.day]}
                               </div>
+                              <div className="flex-1 p-5 space-y-4">
+                                <div className="flex justify-between items-start">
+                                  <div className="space-y-1">
+                                    <div className="text-2xl font-headline font-bold flex items-center gap-2">
+                                      {fromMin(alt.start)} - {fromMin(alt.end)}
+                                      {isPerfect && <CheckCircle2 className="w-5 h-5 text-primary" />}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Duración: {((alt.end - alt.start) / 60).toFixed(1)} horas
+                                    </p>
+                                  </div>
+                                  <Badge variant={isPerfect ? "default" : "secondary"} className={cn(!isPerfect && "bg-muted text-muted-foreground border-transparent")}>
+                                    {alt.count} / {state.people.length} libres
+                                  </Badge>
+                                </div>
 
-                              <div className="space-y-3">
-                                <div className="flex flex-wrap gap-1.5">
-                                  {alt.can.map(p => (
-                                    <div key={p.id} className="w-2 h-2 rounded-full" title={p.name} style={{ backgroundColor: colorFromId(p.id) }} />
-                                  ))}
-                                </div>
-                                {alt.cannot.length > 0 && (
-                                  <div className="flex items-center gap-2 text-[10px] text-destructive font-medium uppercase tracking-wider">
-                                    <AlertCircle className="w-3 h-3" />
-                                    No pueden: {alt.cannot.map(p => p.name).join(", ")}
+                                <div className="space-y-3">
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {alt.can.map(p => (
+                                      <div key={p.id} className="w-2.5 h-2.5 rounded-full ring-2 ring-background" title={p.name} style={{ backgroundColor: colorFromId(p.id) }} />
+                                    ))}
                                   </div>
-                                )}
+                                  {alt.cannot.length > 0 && (
+                                    <div className="flex items-center gap-2 text-[10px] text-destructive font-medium uppercase tracking-wider">
+                                      <AlertCircle className="w-3 h-3" />
+                                      {isMainMissing ? "TÚ NO PUEDES" : `No pueden: ${alt.cannot.map(p => p.name).join(", ")}`}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="w-10 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                                <ChevronRight className="w-5 h-5 opacity-20 group-hover:opacity-100 transition-all group-hover:translate-x-1" />
                               </div>
                             </div>
-                            <div className="w-10 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-                              <ChevronRight className="w-5 h-5 opacity-20 group-hover:opacity-100 transition-all group-hover:translate-x-1" />
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))
+                          </CardContent>
+                        </Card>
+                      );
+                    })
                   ) : (
                     <div className="col-span-full py-20 text-center space-y-4 border-2 border-dashed border-border rounded-3xl">
                       <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto text-muted-foreground">

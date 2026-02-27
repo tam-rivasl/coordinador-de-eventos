@@ -19,7 +19,7 @@ export function fromMin(min: number): string {
 }
 
 /**
- * Une intervalos que se solapan para un solo usuario.
+ * Une intervalos que se solapan para un solo usuario de forma eficiente.
  */
 export function mergeRanges(ranges: TimeRange[]): TimeRange[] {
   if (!ranges.length) return [];
@@ -40,16 +40,15 @@ export function mergeRanges(ranges: TimeRange[]): TimeRange[] {
 }
 
 /**
- * Algoritmo experto para encontrar huecos libres comunes.
- * Utiliza una técnica de "Timeline Events" para identificar cambios en la disponibilidad.
+ * Algoritmo experto Sweep-Line para encontrar huecos libres.
+ * Identifica cada segmento de tiempo y quién está libre en él.
  */
 export function getFreeRanges(day: number, people: Person[], availability: Availability): SlotResult[] {
   const DAY_START = 0;
-  const DAY_END = 1440; // 24 * 60
+  const DAY_END = 1440;
 
   if (people.length === 0) return [];
 
-  // Crear eventos de inicio y fin de BLOQUEO
   const events: { min: number; type: 'start' | 'end'; personId: string }[] = [];
   
   people.forEach(p => {
@@ -60,7 +59,7 @@ export function getFreeRanges(day: number, people: Person[], availability: Avail
     });
   });
 
-  // Ordenar eventos por tiempo
+  // Ordenar eventos: los 'end' antes que los 'start' en el mismo minuto para evitar micro-huecos
   events.sort((a, b) => a.min - b.min || (a.type === 'end' ? -1 : 1));
 
   const results: SlotResult[] = [];
@@ -68,7 +67,7 @@ export function getFreeRanges(day: number, people: Person[], availability: Avail
   let lastTime = DAY_START;
 
   const pushResult = (start: number, end: number) => {
-    if (end <= start) return;
+    if (end - start < 30) return; // Ignorar huecos menores a 30 min
     const can = people.filter(p => !currentBlocked.has(p.id));
     const cannot = people.filter(p => currentBlocked.has(p.id));
     results.push({
@@ -81,7 +80,6 @@ export function getFreeRanges(day: number, people: Person[], availability: Avail
     });
   };
 
-  // Procesar eventos
   events.forEach(event => {
     if (event.min > lastTime) {
       pushResult(lastTime, event.min);
@@ -99,15 +97,34 @@ export function getFreeRanges(day: number, people: Person[], availability: Avail
     pushResult(lastTime, DAY_END);
   }
 
-  // Filtrar huecos irrelevantes (ej: menos de 30 min o muy temprano/tarde si se desea)
-  return results.filter(r => (r.end - r.start) >= 30);
+  return results;
 }
 
-export function scoreAlt(alt: SlotResult, totalPeople: number): number {
-  const attendanceWeight = (alt.count / totalPeople) * 10000;
-  const durationWeight = (alt.end - alt.start) / 10;
-  const dayWeight = (7 - alt.day) * 5; // Preferencia por inicios de semana o fines segun logica
-  return attendanceWeight + durationWeight + dayWeight;
+/**
+ * Sistema de puntuación experto para clasificar alternativas.
+ * Penaliza fuertemente la falta de asistencia.
+ */
+export function scoreAlt(alt: SlotResult, totalPeople: number, mainPersonId?: string): number {
+  const isPerfect = alt.count === totalPeople;
+  const isMainPersonMissing = mainPersonId ? alt.cannot.some(p => p.id === mainPersonId) : false;
+
+  // Multiplicador base por asistencia
+  let score = (alt.count / totalPeople) * 5000;
+  
+  // Bono masivo por perfección
+  if (isPerfect) score += 10000;
+  
+  // Penalización crítica si falta el organizador ("Yo")
+  if (isMainPersonMissing) score -= 15000;
+
+  // Bonus por duración (preferimos juntas de 1.5h a 3h)
+  const durationMin = alt.end - alt.start;
+  if (durationMin >= 90 && durationMin <= 180) score += 500;
+  
+  // Bonus ligero por horario "amigable" (10am - 9pm)
+  if (alt.start >= 600 && alt.end <= 1260) score += 200;
+
+  return score;
 }
 
 export function colorFromId(id: string, alpha = 1): string {

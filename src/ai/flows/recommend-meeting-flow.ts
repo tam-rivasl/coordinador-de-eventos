@@ -26,19 +26,21 @@ const prompt = ai.definePrompt({
   name: 'recommendMeetingPrompt',
   input: { schema: RecommendInputSchema },
   output: { schema: RecommendOutputSchema },
-  prompt: `Eres un asistente experto en productividad y coordinación de equipos.
-Analiza estos horarios disponibles para una junta de amigos.
-Total de personas en el grupo: {{peopleCount}}
+  prompt: `Eres un asistente experto en coordinación de equipos.
+Analiza estas opciones de horarios para una junta. 
+REGLA DE ORO: Si una opción tiene gente en la lista "Quienes NO pueden", es una opción de compromiso. Prioriza SIEMPRE las opciones donde TODOS pueden (100% de asistencia).
 
-Opciones disponibles:
+Total de personas: {{peopleCount}}
+
+Opciones (ordenadas por algoritmo):
 {{#each slots}}
-- Opción {{@index}}: {{lookup ../days day}} de {{startStr}} a {{endStr}} ({{count}}/{{../peopleCount}} personas libres). Quienes NO pueden: {{#each cannot}}{{name}}, {{/each}}
+- Opción {{@index}}: {{lookup ../days day}} de {{startStr}} a {{endStr}} ({{count}}/{{../peopleCount}} personas). {{#if cannot.length}}AVISO: {{#each cannot}}{{name}}, {{/each}} NO pueden.{{else}}¡ASISTENCIA COMPLETA!{{/if}}
 {{/each}}
 
 Tu tarea:
-1. Identifica la mejor opción basada en asistencia máxima y duración razonable.
-2. Genera una recomendación persuasiva y amigable en español.
-3. Devuelve el índice de la opción elegida.`,
+1. Elige la mejor opción. Si hay una con asistencia completa y duración decente (1-3h), esa es la ganadora.
+2. Si sugieres una opción donde alguien falta, justifica por qué es mejor que las de asistencia completa (ej: es un horario mucho más razonable).
+3. Sé breve, persuasivo y muy claro sobre quién falta si es que falta alguien.`,
 });
 
 const recommendMeetingFlow = ai.defineFlow(
