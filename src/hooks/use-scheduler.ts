@@ -4,26 +4,38 @@ import { useState, useEffect, useCallback } from "react";
 import { SchedulerState, SlotResult } from "@/types/scheduler";
 import { uid, mergeRanges, getFreeRanges } from "@/lib/scheduler-utils";
 
-const LS_KEY = "tiempojuntos_strict_v3";
+const LS_KEY = "tiempojuntos_strict_v4";
+const SCHEMA_VERSION = 4;
 
-function initialState(): SchedulerState {
+type PersistedState = SchedulerState & { schemaVersion: number };
+
+function initialState(): PersistedState {
   return {
-    people: [{ id: uid(), name: "Yo" }], // ✅ solo Yo
+    schemaVersion: SCHEMA_VERSION,
+    people: [{ id: uid(), name: "Yo" }],
     availability: {},
   };
 }
 
 export function useScheduler() {
-  const [state, setState] = useState<SchedulerState | null>(null);
+  const [state, setState] = useState<PersistedState | null>(null);
 
   // Carga inicial desde LocalStorage
   useEffect(() => {
     const saved = localStorage.getItem(LS_KEY);
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        if (parsed?.people?.length) {
-          setState(parsed);
+        const parsed = JSON.parse(saved) as Partial<PersistedState>;
+
+        // ✅ si no coincide la versión del schema, se resetea
+        if (parsed?.schemaVersion !== SCHEMA_VERSION) {
+          setState(initialState());
+          return;
+        }
+
+        // ✅ validar mínimo esperable
+        if (Array.isArray(parsed?.people) && parsed.people.length > 0 && parsed.availability) {
+          setState(parsed as PersistedState);
           return;
         }
       } catch (e) {
@@ -65,7 +77,7 @@ export function useScheduler() {
 
   const removePerson = useCallback((id: string) => {
     setState((prev) => {
-      if (!prev || prev.people[0]?.id === id) return prev; // no borrar Yo
+      if (!prev || prev.people[0]?.id === id) return prev; // no borrar "Yo"
 
       const newAvailability = { ...prev.availability };
       delete newAvailability[id];
@@ -147,9 +159,9 @@ export function useScheduler() {
     [state]
   );
 
-  // ✅ FIX REAL: borra storage + deja SOLO Yo + availability vacía
+  // ✅ Reset real: borra storage y vuelve a estado inicial
   const resetAll = useCallback(() => {
-    localStorage.removeItem(LS_KEY); // ✅ asegurar que no queda nada viejo
+    localStorage.removeItem(LS_KEY);
     setState(initialState());
   }, []);
 
