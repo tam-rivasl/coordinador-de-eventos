@@ -1,10 +1,17 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { SchedulerState, Person, Availability, SlotResult } from "@/types/scheduler";
+import { SchedulerState, SlotResult } from "@/types/scheduler";
 import { uid, mergeRanges, getFreeRanges } from "@/lib/scheduler-utils";
 
 const LS_KEY = "tiempojuntos_strict_v3";
+
+function initialState(): SchedulerState {
+  return {
+    people: [{ id: uid(), name: "Yo" }], // ✅ solo Yo
+    availability: {},
+  };
+}
 
 export function useScheduler() {
   const [state, setState] = useState<SchedulerState | null>(null);
@@ -23,18 +30,11 @@ export function useScheduler() {
         console.error("Error al cargar datos:", e);
       }
     }
-    
-    // Estado inicial por defecto si no hay nada guardado
-    setState({
-      people: [
-        { id: uid(), name: "Yo" },
-        { id: uid(), name: "Amigo 1" },
-      ],
-      availability: {},
-    });
+
+    setState(initialState());
   }, []);
 
-  // Persistencia automática cada vez que el estado cambia
+  // Persistencia automática
   useEffect(() => {
     if (state) {
       localStorage.setItem(LS_KEY, JSON.stringify(state));
@@ -42,64 +42,70 @@ export function useScheduler() {
   }, [state]);
 
   const addPerson = useCallback((name: string) => {
-    setState(prev => {
+    setState((prev) => {
       if (!prev) return prev;
       return {
         ...prev,
-        people: [...prev.people, { id: uid(), name: name.trim() }]
+        people: [...prev.people, { id: uid(), name: name.trim() }],
       };
     });
   }, []);
 
   const updatePerson = useCallback((id: string, name: string) => {
-    setState(prev => {
+    setState((prev) => {
       if (!prev) return prev;
       return {
         ...prev,
-        people: prev.people.map(p => p.id === id ? { ...p, name: name.trim() } : p)
+        people: prev.people.map((p) =>
+          p.id === id ? { ...p, name: name.trim() } : p
+        ),
       };
     });
   }, []);
 
   const removePerson = useCallback((id: string) => {
-    setState(prev => {
-      if (!prev || prev.people[0].id === id) return prev;
-      
+    setState((prev) => {
+      if (!prev || prev.people[0]?.id === id) return prev; // no borrar Yo
+
       const newAvailability = { ...prev.availability };
       delete newAvailability[id];
-      
-      return {
-        people: prev.people.filter(p => p.id !== id),
-        availability: newAvailability
-      };
-    });
-  }, []);
 
-  const addSlot = useCallback((personId: string, day: number, fromMin: number, toMin: number) => {
-    setState(prev => {
-      if (!prev) return prev;
-      
-      const currentPersonAvail = prev.availability[personId] || {};
-      const dayRanges = currentPersonAvail[day] || [];
-      const newDayRanges = mergeRanges([...dayRanges, { fromMin, toMin }]);
-      
       return {
         ...prev,
-        availability: {
-          ...prev.availability,
-          [personId]: {
-            ...currentPersonAvail,
-            [day]: newDayRanges,
-          },
-        },
+        people: prev.people.filter((p) => p.id !== id),
+        availability: newAvailability,
       };
     });
   }, []);
 
+  const addSlot = useCallback(
+    (personId: string, day: number, fromMin: number, toMin: number) => {
+      setState((prev) => {
+        if (!prev) return prev;
+
+        const currentPersonAvail = prev.availability[personId] || {};
+        const dayRanges = currentPersonAvail[day] || [];
+        const newDayRanges = mergeRanges([...dayRanges, { fromMin, toMin }]);
+
+        return {
+          ...prev,
+          availability: {
+            ...prev.availability,
+            [personId]: {
+              ...currentPersonAvail,
+              [day]: newDayRanges,
+            },
+          },
+        };
+      });
+    },
+    []
+  );
+
   const removeSlot = useCallback((personId: string, day: number, index: number) => {
-    setState(prev => {
+    setState((prev) => {
       if (!prev || !prev.availability[personId]) return prev;
-      
+
       const dayRanges = [...(prev.availability[personId][day] || [])];
       dayRanges.splice(index, 1);
 
@@ -116,37 +122,35 @@ export function useScheduler() {
     });
   }, []);
 
-  const computeResults = useCallback((selectedDay?: number): { alternatives: SlotResult[] } => {
-    if (!state || state.people.length === 0) return { alternatives: [] };
+  const computeResults = useCallback(
+    (selectedDay?: number): { alternatives: SlotResult[] } => {
+      if (!state || state.people.length === 0) return { alternatives: [] };
 
-    const totalPeople = state.people.length;
-    const allOptions: SlotResult[] = [];
+      const totalPeople = state.people.length;
+      const allOptions: SlotResult[] = [];
 
-    for (let day = 0; day < 7; day++) {
-      const ranges = getFreeRanges(day, state.people, state.availability);
-      const perfectRanges = ranges.filter(r => r.count === totalPeople);
-      allOptions.push(...perfectRanges);
-    }
+      const daysToCheck =
+        selectedDay !== undefined ? [selectedDay] : [0, 1, 2, 3, 4, 5, 6];
 
-    const filtered = selectedDay !== undefined 
-      ? allOptions.filter(o => o.day === selectedDay)
-      : allOptions;
+      for (const day of daysToCheck) {
+        const ranges = getFreeRanges(day, state.people, state.availability);
+        const perfectRanges = ranges.filter((r) => r.count === totalPeople);
+        allOptions.push(...perfectRanges);
+      }
 
-    return {
-      alternatives: filtered.sort((a, b) => (b.end - b.start) - (a.end - a.start))
-    };
-  }, [state]);
+      return {
+        alternatives: allOptions.sort(
+          (a, b) => (b.end - b.start) - (a.end - a.start)
+        ),
+      };
+    },
+    [state]
+  );
 
+  // ✅ FIX REAL: borra storage + deja SOLO Yo + availability vacía
   const resetAll = useCallback(() => {
-    const freshState = {
-      people: [
-        { id: uid(), name: "Yo" },
-        { id: uid(), name: "Amigo 1" },
-      ],
-      availability: {},
-    };
-    localStorage.setItem(LS_KEY, JSON.stringify(freshState));
-    setState(freshState);
+    localStorage.removeItem(LS_KEY); // ✅ asegurar que no queda nada viejo
+    setState(initialState());
   }, []);
 
   return {
