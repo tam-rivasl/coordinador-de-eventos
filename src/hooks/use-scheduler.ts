@@ -1,138 +1,140 @@
+
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { SchedulerState, SlotResult } from "@/types/scheduler";
 import { uid, mergeRanges, getFreeRanges } from "@/lib/scheduler-utils";
+import { db } from "@/lib/firebase";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
-const LS_KEY = "tiempojuntos_strict_v4";
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
-type PersistedState = SchedulerState & { schemaVersion: number };
-
-function initialState(): PersistedState {
+function createInitialState(): SchedulerState {
   return {
-    schemaVersion: SCHEMA_VERSION,
     people: [{ id: uid(), name: "Yo" }],
     availability: {},
   };
 }
 
-export function useScheduler() {
-  const [state, setState] = useState<PersistedState | null>(null);
+export function useScheduler(roomId: string | null) {
+  const [state, setState] = useState<SchedulerState | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Carga inicial desde LocalStorage
   useEffect(() => {
-    const saved = localStorage.getItem(LS_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Partial<PersistedState>;
+    // Si no hay base de datos (por falta de config), caemos a modo local temporal
+    if (!db || !roomId) {
+      if (!roomId) setLoading(false);
+      return;
+    }
 
-        // ✅ si no coincide la versión del schema, se resetea
-        if (parsed?.schemaVersion !== SCHEMA_VERSION) {
-          setState(initialState());
-          return;
-        }
-
-        // ✅ validar mínimo esperable
-        if (Array.isArray(parsed?.people) && parsed.people.length > 0 && parsed.availability) {
-          setState(parsed as PersistedState);
-          return;
-        }
-      } catch (e) {
-        console.error("Error al cargar datos:", e);
+    const docRef = doc(db, "meetings", roomId);
+    
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as SchedulerState;
+        setState(data);
+      } else {
+        const initial = createInitialState();
+        setDoc(docRef, { ...initial, schemaVersion: SCHEMA_VERSION });
+        setState(initial);
       }
+      setLoading(false);
+    }, (error) => {
+      console.error("Error en Firestore onSnapshot:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [roomId]);
+
+  const syncToCloud = useCallback(async (newState: SchedulerState) => {
+    if (!roomId || !db) {
+      // Si no hay nube, guardamos en el estado local para que al menos funcione la sesión
+      setState(newState);
+      return;
     }
-
-    setState(initialState());
-  }, []);
-
-  // Persistencia automática
-  useEffect(() => {
-    if (state) {
-      localStorage.setItem(LS_KEY, JSON.stringify(state));
+    try {
+      await setDoc(doc(db, "meetings", roomId), { ...newState, schemaVersion: SCHEMA_VERSION });
+    } catch (e) {
+      console.error("Error al guardar en la nube:", e);
     }
-  }, [state]);
+  }, [roomId]);
 
-  const addPerson = useCallback((name: string) => {
-    setState((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        people: [...prev.people, { id: uid(), name: name.trim() }],
-      };
-    });
-  }, []);
+  const addPerson = useCallback(async (name: string) => {
+    if (!state) return;
+    const newState = {
+      ...state,
+      people: [...state.people, { id: uid(), name: name.trim() }],
+    };
+    await syncToCloud(newState);
+  }, [state, syncToCloud]);
 
-  const updatePerson = useCallback((id: string, name: string) => {
-    setState((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        people: prev.people.map((p) =>
-          p.id === id ? { ...p, name: name.trim() } : p
-        ),
-      };
-    });
-  }, []);
+  const updatePerson = useCallback(async (id: string, name: string) => {
+    if (!state) return;
+    const newState = {
+      ...state,
+      people: state.people.map((p) =>
+        p.id === id ? { ...p, name: name.trim() } : p
+      ),
+    };
+    await syncToCloud(newState);
+  }, [state, syncToCloud]);
 
-  const removePerson = useCallback((id: string) => {
-    setState((prev) => {
-      if (!prev || prev.people[0]?.id === id) return prev; // no borrar "Yo"
+  const removePerson = useCallback(async (id: string) => {
+    if (!state || state.people.length <= 1) return;
 
-      const newAvailability = { ...prev.availability };
-      delete newAvailability[id];
+    const newAvailability = { ...state.availability };
+    delete newAvailability[id];
 
-      return {
-        ...prev,
-        people: prev.people.filter((p) => p.id !== id),
-        availability: newAvailability,
-      };
-    });
-  }, []);
+    const newState = {
+      ...state,
+      people: state.people.filter((p) => p.id !== id),
+      availability: newAvailability,
+    };
+    await syncToCloud(newState);
+  }, [state, syncToCloud]);
 
   const addSlot = useCallback(
-    (personId: string, day: number, fromMin: number, toMin: number) => {
-      setState((prev) => {
-        if (!prev) return prev;
+    async (personId: string, day: number, fromMin: number, toMin: number) => {
+      if (!state) return;
 
-        const currentPersonAvail = prev.availability[personId] || {};
-        const dayRanges = currentPersonAvail[day] || [];
-        const newDayRanges = mergeRanges([...dayRanges, { fromMin, toMin }]);
+      const currentPersonAvail = state.availability[personId] || {};
+      const dayRanges = currentPersonAvail[day] || [];
+      const newDayRanges = mergeRanges([...dayRanges, { fromMin, toMin }]);
 
-        return {
-          ...prev,
-          availability: {
-            ...prev.availability,
-            [personId]: {
-              ...currentPersonAvail,
-              [day]: newDayRanges,
-            },
-          },
-        };
-      });
-    },
-    []
-  );
-
-  const removeSlot = useCallback((personId: string, day: number, index: number) => {
-    setState((prev) => {
-      if (!prev || !prev.availability[personId]) return prev;
-
-      const dayRanges = [...(prev.availability[personId][day] || [])];
-      dayRanges.splice(index, 1);
-
-      return {
-        ...prev,
+      const newState = {
+        ...state,
         availability: {
-          ...prev.availability,
+          ...state.availability,
           [personId]: {
-            ...prev.availability[personId],
-            [day]: dayRanges,
+            ...currentPersonAvail,
+            [day]: newDayRanges,
           },
         },
       };
-    });
-  }, []);
+      await syncToCloud(newState);
+    },
+    [state, syncToCloud]
+  );
+
+  const removeSlot = useCallback(async (personId: string, day: number, index: number) => {
+    if (!state || !state.availability[personId]) return;
+
+    const dayRanges = [...(state.availability[personId][day] || [])];
+    dayRanges.splice(index, 1);
+
+    const newState = {
+      ...state,
+      availability: {
+        ...state.availability,
+        [personId]: {
+          ...state.availability[personId],
+          [day]: dayRanges,
+        },
+      },
+    };
+    await syncToCloud(newState);
+  }, [state, syncToCloud]);
 
   const computeResults = useCallback(
     (selectedDay?: number): { alternatives: SlotResult[] } => {
@@ -142,10 +144,11 @@ export function useScheduler() {
       const allOptions: SlotResult[] = [];
 
       const daysToCheck =
-        selectedDay !== undefined ? [selectedDay] : [0, 1, 2, 3, 4, 5, 6];
+        selectedDay !== undefined && selectedDay !== -1 ? [selectedDay] : [0, 1, 2, 3, 4, 5, 6];
 
       for (const day of daysToCheck) {
         const ranges = getFreeRanges(day, state.people, state.availability);
+        // Filtramos solo los rangos donde TODOS pueden
         const perfectRanges = ranges.filter((r) => r.count === totalPeople);
         allOptions.push(...perfectRanges);
       }
@@ -159,14 +162,14 @@ export function useScheduler() {
     [state]
   );
 
-  // ✅ Reset real: borra storage y vuelve a estado inicial
-  const resetAll = useCallback(() => {
-    localStorage.removeItem(LS_KEY);
-    setState(initialState());
-  }, []);
+  const resetAll = useCallback(async () => {
+    const initial = createInitialState();
+    await syncToCloud(initial);
+  }, [syncToCloud]);
 
   return {
     state,
+    loading,
     addPerson,
     updatePerson,
     removePerson,
